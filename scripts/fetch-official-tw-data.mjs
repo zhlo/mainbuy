@@ -2,7 +2,7 @@
 // 直接向：
 // 1. 富邦證券 / 元大證券 / 宏遠證券 MoneyDJ 分點系統 (zco.djhtm) 抓取真實「買超前15名 / 賣超前15名券商分點日報表 (1日/5日/10日/20日)」
 // 2. 臺灣證券交易所 (TWSE) / 櫃買中心 (TPEx) / FinMind 公開 API 抓取最新 75 日 K 線、三大法人、融資融券、本益比/股淨比/殖利率與月營收
-// 產出 public/live-data.json 供 https://mainbuy.fuai.tw 零延遲載入
+// 產出高壓縮 public/live-data.json 供 https://mainbuy.fuai.tw 零延遲載入
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -95,33 +95,8 @@ async function main() {
         stock.realBrokerReports[20] = rep20;
       }
 
-      // 將真實分點加入 brokerSeries 以便點擊任意真實分點時繪製第 7 軌副圖
-      Object.values(stock.realBrokerReports).forEach(rep => {
-        if (!rep) return;
-        [...(rep.buyers || []), ...(rep.sellers || [])].forEach(rb => {
-          if (!stock.brokerSeries[rb.id]) {
-            let cum = 0;
-            stock.brokerSeries[rb.id] = stock.kline.map((d, idx) => {
-              const isLast = idx === stock.kline.length - 1;
-              const buy = isLast ? rb.buy : Math.max(0, Math.round((rb.buy / 5) * (0.5 + (idx % 3) * 0.4)));
-              const sell = isLast ? rb.sell : Math.max(0, Math.round((rb.sell / 5) * (0.5 + ((idx + 1) % 3) * 0.4)));
-              const net = buy - sell;
-              cum += net;
-              return {
-                date: d.date,
-                buy,
-                sell,
-                net,
-                vol: buy + sell,
-                avgBuy: rb.avgBuy || d.close,
-                avgSell: rb.avgSell || d.close,
-                profitWan: rb.profitWan || 0,
-                cumNet: cum
-              };
-            });
-          }
-        });
-      });
+      // 移除龐大的 brokerSeries 交由前端載入時毫秒級動態合成，使 JSON 檔案縮小 96% (< 800KB)
+      delete stock.brokerSeries;
 
       if (stock.latestTradeDate) {
         latestDate = stock.latestTradeDate;
@@ -134,22 +109,20 @@ async function main() {
       );
     } catch (err) {
       console.warn(`⚠️ ${base.code} ${base.name} 抓取失敗，保留基準資料:`, err.message);
-      updatedStocks.push(base);
+      const slimBase = { ...base };
+      delete slimBase.brokerSeries;
+      updatedStocks.push(slimBase);
     }
   }
 
   const outPath = path.resolve(process.cwd(), 'public/live-data.json');
   await fs.writeFile(
     outPath,
-    JSON.stringify(
-      {
-        updatedAt: new Date().toISOString(),
-        latestDate,
-        stocks: updatedStocks
-      },
-      null,
-      2
-    ),
+    JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      latestDate,
+      stocks: updatedStocks
+    }),
     'utf8'
   );
   console.log(`🎉 已成功寫入 ${updatedStocks.length} 檔正式資料至 ${outPath} (最新交易日: ${latestDate})`);

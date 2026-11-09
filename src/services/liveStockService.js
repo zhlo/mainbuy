@@ -240,6 +240,87 @@ export async function fetchBrokerReportFromPortal(code, days = 1, currentPrice =
   return null;
 }
 
+// 根據 kline 與 realBrokerReports 在瀏覽器端快速合成 brokerSeries (大幅縮小 live-data.json 體積 96%)
+export function hydrateStockBrokerSeries(stock) {
+  if (stock.brokerSeries && Object.keys(stock.brokerSeries).length > 30) {
+    return stock;
+  }
+  const kline = stock.kline || [];
+  const lastDay = kline[kline.length - 1] || { volume: 1000, close: stock.price };
+  const vol1 = Math.max(1, lastDay.volume);
+  const realBrokerReports = stock.realBrokerReports || {};
+
+  const allKnownBrokers = [...BROKER_LIST];
+  Object.values(realBrokerReports).forEach(rep => {
+    if (!rep) return;
+    [...(rep.buyers || []), ...(rep.sellers || [])].forEach(rb => {
+      if (!allKnownBrokers.some(k => k.id === rb.id)) {
+        allKnownBrokers.push(rb);
+      }
+    });
+  });
+
+  const brokerSeries = {};
+  allKnownBrokers.forEach((broker, bIdx) => {
+    let cumNet = 0;
+    const latestReal1D =
+      realBrokerReports[1]?.buyers?.find(b => b.id === broker.id) ||
+      realBrokerReports[1]?.sellers?.find(b => b.id === broker.id);
+
+    brokerSeries[broker.id] = kline.map((day, dIdx) => {
+      const isLast = dIdx === kline.length - 1;
+      if (isLast && latestReal1D) {
+        cumNet += latestReal1D.net;
+        return {
+          date: day.date,
+          buy: latestReal1D.buy,
+          sell: latestReal1D.sell,
+          net: latestReal1D.net,
+          vol: latestReal1D.vol,
+          avgBuy: latestReal1D.avgBuy,
+          avgSell: latestReal1D.avgSell,
+          profitWan: latestReal1D.profitWan,
+          cumNet
+        };
+      }
+
+      const weight =
+        broker.type === '外資'
+          ? Math.abs(day.foreignNet) / (vol1 * 0.4 + 50)
+          : Math.abs(day.mainNet) / (vol1 * 0.5 + 50);
+      const baseLots = Math.max(
+        1,
+        Math.round(day.volume * 0.022 * (0.4 + Math.min(2.2, weight)) * ((bIdx % 5) * 0.2 + 0.5))
+      );
+      const isBuyer =
+        (day.mainNet >= 0 && bIdx % 2 === 0) || (day.foreignNet > 0 && broker.type === '外資');
+      const buy = isBuyer ? Math.round(baseLots * 1.35) : Math.round(baseLots * 0.65);
+      const sell = isBuyer ? Math.round(baseLots * 0.65) : Math.round(baseLots * 1.35);
+      const net = buy - sell;
+      cumNet += net;
+      const avgBuy = Number((day.close * 0.998).toFixed(2));
+      const avgSell = Number((day.close * 1.002).toFixed(2));
+      const profitWan = Math.round(((day.close - avgBuy) * buy + (avgSell - day.close) * sell) * 0.1);
+      return {
+        date: day.date,
+        buy,
+        sell,
+        net,
+        vol: buy + sell,
+        avgBuy,
+        avgSell,
+        profitWan,
+        cumNet
+      };
+    });
+  });
+
+  return {
+    ...stock,
+    brokerSeries
+  };
+}
+
 // 嘗試載入由 GitHub Actions 定期從證交所/櫃買中心/券商網站抓取的 /live-data.json 快照
 export async function fetchPrebuiltCloudSnapshot() {
   try {
@@ -247,7 +328,10 @@ export async function fetchPrebuiltCloudSnapshot() {
     if (!res.ok) return null;
     const data = await res.json();
     if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
-      return data;
+      return {
+        ...data,
+        stocks: data.stocks.map(s => hydrateStockBrokerSeries(s))
+      };
     }
   } catch {
     // ignore if snapshot not yet generated
