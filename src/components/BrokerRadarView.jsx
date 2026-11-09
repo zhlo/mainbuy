@@ -1,22 +1,43 @@
 import React, { useState, useMemo } from 'react';
-import { BROKER_LIST, computePeriodChipAnalysis } from '../data/mockStocks';
+import { BROKER_LIST, computePeriodChipAnalysis, computeStockMomentum } from '../data/mockStocks';
 
 export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
   const [selectedBrokerId, setSelectedBrokerId] = useState('kgi-taipei');
   const [periodDays, setPeriodDays] = useState(1);
   const [filterType, setFilterType] = useState('ALL'); // 'ALL' | '神秘' | '外資' | '隔日沖' | '官股'
+  const [momentumFilter, setMomentumFilter] = useState('ALL'); // 'ALL' | 'DAY1_BUY' | 'BUY_5D' | 'BUY_10D'
+
+  // 合併內建知名分點與從真實券商日報表抓到的上榜主力分點
+  const allAvailableBrokers = useMemo(() => {
+    const map = new Map();
+    BROKER_LIST.forEach(b => map.set(b.id, b));
+    stocks.forEach(s => {
+      const rep = s.realBrokerReports?.[periodDays] || s.realBrokerReports?.[1];
+      if (!rep) return;
+      [...(rep.buyers || []), ...(rep.sellers || [])].slice(0, 6).forEach(rb => {
+        if (!map.has(rb.id)) {
+          map.set(rb.id, rb);
+        }
+      });
+    });
+    return Array.from(map.values());
+  }, [stocks, periodDays]);
 
   const filteredBrokers = useMemo(() => {
-    if (filterType === '神秘') return BROKER_LIST.filter(b => b.isMystery);
-    if (filterType === '外資') return BROKER_LIST.filter(b => b.type === '外資');
-    if (filterType === '隔日沖') return BROKER_LIST.filter(b => b.isDayTrade);
-    if (filterType === '官股') return BROKER_LIST.filter(b => b.isGov);
-    return BROKER_LIST;
-  }, [filterType]);
+    if (filterType === '神秘') return allAvailableBrokers.filter(b => b.isMystery);
+    if (filterType === '外資') return allAvailableBrokers.filter(b => b.type === '外資');
+    if (filterType === '隔日沖') return allAvailableBrokers.filter(b => b.isDayTrade);
+    if (filterType === '官股') return allAvailableBrokers.filter(b => b.isGov);
+    return allAvailableBrokers;
+  }, [allAvailableBrokers, filterType]);
 
   const activeBroker = useMemo(() => {
-    return BROKER_LIST.find(b => b.id === selectedBrokerId) || BROKER_LIST[0];
-  }, [selectedBrokerId]);
+    return (
+      allAvailableBrokers.find(b => b.id === selectedBrokerId) ||
+      filteredBrokers[0] ||
+      BROKER_LIST[0]
+    );
+  }, [allAvailableBrokers, filteredBrokers, selectedBrokerId]);
 
   // 反查該券商分點在所有個股的區間買賣超、金額與損益
   const brokerHoldingsAcrossStocks = useMemo(() => {
@@ -24,7 +45,9 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
       .map(stock => {
         const endIdx = stock.kline.length - 1;
         const analysis = computePeriodChipAnalysis(stock, endIdx, periodDays);
-        const rec = analysis.allBrokers.find(b => b.id === activeBroker.id);
+        const rec = analysis.allBrokers.find(
+          b => b.id === activeBroker.id || b.name.replace(/\s+/g, '') === activeBroker.name.replace(/\s+/g, '')
+        );
         const net = rec ? rec.net : 0;
         const buy = rec ? rec.buy : 0;
         const sell = rec ? rec.sell : 0;
@@ -33,10 +56,14 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
         const profitWan = rec ? rec.profitWan : 0;
         const netAmountWan = Math.round((net * stock.price) / 10);
         const shareOfVolPct =
-          analysis.periodVol > 0 ? Number((((buy + sell) / 2 / analysis.periodVol) * 100).toFixed(2)) : 0;
+          analysis.periodVol > 0
+            ? Number((((buy + sell) / 2 / analysis.periodVol) * 100).toFixed(2))
+            : 0;
+        const mom = stock.momentum || computeStockMomentum(stock.kline || []);
 
         return {
           stock,
+          mom,
           buy,
           sell,
           net,
@@ -48,11 +75,21 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
           periodVol: analysis.periodVol
         };
       })
+      .filter(item => {
+        if (momentumFilter === 'DAY1_BUY') return item.mom?.main?.isDay1Buy;
+        if (momentumFilter === 'BUY_5D') return item.mom?.main?.is5DBuy;
+        if (momentumFilter === 'BUY_10D') return item.mom?.main?.is10DBuy;
+        return true;
+      })
       .sort((a, b) => Math.abs(b.netAmountWan) - Math.abs(a.netAmountWan));
-  }, [stocks, activeBroker, periodDays]);
+  }, [stocks, activeBroker, periodDays, momentumFilter]);
 
-  const buyList = brokerHoldingsAcrossStocks.filter(item => item.net > 0).sort((a, b) => b.netAmountWan - a.netAmountWan);
-  const sellList = brokerHoldingsAcrossStocks.filter(item => item.net < 0).sort((a, b) => a.netAmountWan - b.netAmountWan);
+  const buyList = brokerHoldingsAcrossStocks
+    .filter(item => item.net > 0)
+    .sort((a, b) => b.netAmountWan - a.netAmountWan);
+  const sellList = brokerHoldingsAcrossStocks
+    .filter(item => item.net < 0)
+    .sort((a, b) => a.netAmountWan - b.netAmountWan);
 
   // 全市場隔日沖高佔比警戒清單
   const dayTradeAlertList = useMemo(() => {
@@ -80,7 +117,7 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
       {/* 頂部券商篩選與統計天數控制列 */}
       <div className="radar-top-bar">
         <div className="radar-filter-group">
-          <span className="toolbar-label">分點分類：</span>
+          <span className="toolbar-label">分點派別：</span>
           {['ALL', '神秘', '隔日沖', '外資', '官股'].map(type => (
             <button
               key={type}
@@ -89,8 +126,8 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                 setFilterType(type);
                 const firstMatch =
                   type === 'ALL'
-                    ? BROKER_LIST[0]
-                    : BROKER_LIST.find(b =>
+                    ? allAvailableBrokers[0]
+                    : allAvailableBrokers.find(b =>
                         type === '神秘'
                           ? b.isMystery
                           : type === '隔日沖'
@@ -102,7 +139,25 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                 if (firstMatch) setSelectedBrokerId(firstMatch.id);
               }}
             >
-              {type === 'ALL' ? '全部知名分點' : `${type}券商`}
+              {type === 'ALL' ? `全部關鍵分點 (${allAvailableBrokers.length})` : `${type}分點`}
+            </button>
+          ))}
+        </div>
+
+        <div className="radar-filter-group">
+          <span className="toolbar-label">個股動能過濾：</span>
+          {[
+            { id: 'ALL', label: '全部' },
+            { id: 'DAY1_BUY', label: '🔥 第1天轉買' },
+            { id: 'BUY_5D', label: '📈 5天內偏買' },
+            { id: 'BUY_10D', label: '🚀 10天內偏買' }
+          ].map(mf => (
+            <button
+              key={mf.id}
+              className={`btn-radar-cat ${momentumFilter === mf.id ? 'active' : ''}`}
+              onClick={() => setMomentumFilter(mf.id)}
+            >
+              {mf.label}
             </button>
           ))}
         </div>
@@ -123,7 +178,7 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
 
       {/* 券商分點選擇器橫排 */}
       <div className="broker-selector-strip">
-        {filteredBrokers.map(broker => (
+        {filteredBrokers.slice(0, 24).map(broker => (
           <button
             key={broker.id}
             className={`broker-card-pill ${selectedBrokerId === broker.id ? 'selected' : ''}`}
@@ -150,7 +205,7 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                 【{activeBroker.name}】近 {periodDays} 日跨市場個股進出反查
               </h2>
               <p>
-                分點屬性：{activeBroker.type}（{activeBroker.region}）｜點擊個股可直接進入「個股籌碼K線」並自動鎖定【{activeBroker.name}】分點軌跡
+                分點屬性：{activeBroker.type}（{activeBroker.region}）｜點擊任一個股可直接進入「2. 個股K線」並自動鎖定【{activeBroker.name}】分點軌跡
               </p>
             </div>
           </div>
@@ -165,6 +220,7 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                 <thead>
                   <tr>
                     <th className="b-col-name">個股</th>
+                    <th>動能狀態</th>
                     <th>現價</th>
                     <th>漲跌%</th>
                     <th>買超(張)</th>
@@ -182,6 +238,11 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                     >
                       <td className="b-col-name">
                         <strong>{item.stock.code} {item.stock.name}</strong>
+                      </td>
+                      <td>
+                        <span className="mom-stage-badge stage-bull">
+                          {item.mom?.main?.stageLabel}
+                        </span>
                       </td>
                       <td>{item.stock.price}</td>
                       <td className={item.stock.changePct >= 0 ? 'val-up' : 'val-down'}>
@@ -208,6 +269,7 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                 <thead>
                   <tr>
                     <th className="b-col-name">個股</th>
+                    <th>動能狀態</th>
                     <th>現價</th>
                     <th>漲跌%</th>
                     <th>賣超(張)</th>
@@ -225,6 +287,11 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                     >
                       <td className="b-col-name">
                         <strong>{item.stock.code} {item.stock.name}</strong>
+                      </td>
+                      <td>
+                        <span className="mom-stage-badge stage-bear">
+                          {item.mom?.main?.stageLabel}
+                        </span>
                       </td>
                       <td>{item.stock.price}</td>
                       <td className={item.stock.changePct >= 0 ? 'val-up' : 'val-down'}>
@@ -280,7 +347,10 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
                   </td>
                   <td className="val-up">+{item.dtNetBuy} 張</td>
                   <td>
-                    <span className={item.dtRatioPct >= 5 ? 'bg-highlight-red' : 'val-up'} style={{ padding: '2px 6px', borderRadius: '3px' }}>
+                    <span
+                      className={item.dtRatioPct >= 5 ? 'bg-highlight-red' : 'val-up'}
+                      style={{ padding: '2px 6px', borderRadius: '3px' }}
+                    >
                       {item.dtRatioPct}%
                     </span>
                   </td>

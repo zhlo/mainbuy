@@ -2,7 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { generateStockDataset } from './data/mockStocks';
 import {
   fetchOfficialStockData,
-  fetchPrebuiltCloudSnapshot
+  fetchPrebuiltCloudSnapshot,
+  hydrateStockBrokerSeries,
+  loadCachedStocksFromStorage,
+  saveStockToLocalCache
 } from './services/liveStockService';
 import StockScreener from './components/StockScreener';
 import StockDetail from './components/StockDetail';
@@ -11,14 +14,29 @@ import FormulaModal from './components/FormulaModal';
 import DataSourceModal from './components/DataSourceModal';
 
 export default function App() {
-  const [stocks, setStocks] = useState(() => generateStockDataset());
+  // 初始化時立即載入本機快取個股，實現 0 秒瞬開
+  const [stocks, setStocks] = useState(() => {
+    const base = generateStockDataset();
+    const cachedMap = loadCachedStocksFromStorage();
+    const baseCodes = new Set(base.map(s => s.code));
+    const merged = base.map(s =>
+      cachedMap[s.code] ? hydrateStockBrokerSeries({ ...s, ...cachedMap[s.code] }) : s
+    );
+    Object.values(cachedMap).forEach(cs => {
+      if (cs?.code && !baseCodes.has(cs.code) && Array.isArray(cs.kline)) {
+        merged.unshift(hydrateStockBrokerSeries(cs));
+      }
+    });
+    return merged;
+  });
+
   const [activeView, setActiveView] = useState('screener'); // 'screener' | 'detail' | 'radar'
-  const [selectedCode, setSelectedCode] = useState('2049');
-  const [initialBrokerId, setInitialBrokerId] = useState('esun-chengzhong');
-  const [pinnedCodes, setPinnedCodes] = useState(['2227', '2049', '2330']);
+  const [selectedCode, setSelectedCode] = useState('2330');
+  const [initialBrokerId, setInitialBrokerId] = useState('');
+  const [pinnedCodes, setPinnedCodes] = useState(['2330', '2049', '2317', '2454']);
   const [isFormulaOpen, setIsFormulaOpen] = useState(false);
   const [isDataSourceOpen, setIsDataSourceOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState('classic'); // 'classic' | 'dark' | 'light'
+  const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'classic' | 'light'
 
   // 正式資料同步狀態
   const [syncState, setSyncState] = useState({
@@ -52,7 +70,7 @@ export default function App() {
     }
   };
 
-  // 同步單一股票最新正式資料（含富邦/元大/宏遠券商網站真實分點日報表）
+  // 同步單一股票最新正式資料（含富邦/元大/宏遠券商網站真實分點日報表）並自動寫入本機快取
   const syncSingleStock = useCallback(
     async (code, existingStock = null, includeBrokerPortal = false) => {
       try {
@@ -62,6 +80,7 @@ export default function App() {
           dataSourceConfig.finmindToken,
           includeBrokerPortal
         );
+        saveStockToLocalCache(updated);
         setStocks(prev => {
           const exists = prev.some(s => s.code === code);
           if (exists) {
@@ -112,7 +131,7 @@ export default function App() {
       return;
     }
 
-    // 步驟 2：若無預建快照，直接由瀏覽器平行向 FinMind 與券商分點網站抓取
+    // 步驟 2：若無預建快照，直接由瀏覽器向公開 API 與券商分點網站抓取
     let successCount = 0;
     let latestDateFound = '';
 
@@ -124,7 +143,6 @@ export default function App() {
 
     for (let i = 0; i < ordered.length; i++) {
       const target = ordered[i];
-      // 針對目前選中個股與前 3 檔重點股同步抓取券商網站分點日報表
       const fetchBrokerToo = i < 3 || target.code === selectedCode;
       const updated = await syncSingleStock(target.code, target, fetchBrokerToo);
       if (updated) {
@@ -143,7 +161,7 @@ export default function App() {
       status: successCount > 0 ? 'synced' : 'partial',
       errorMsg:
         successCount === 0
-          ? '目前網路環境無法直連外部公開 API，已自動使用內建高擬真資料庫'
+          ? '目前網路環境無法直連外部公開 API，已自動使用內建基準資料庫'
           : ''
     }));
   }, [stocks, selectedCode, syncSingleStock]);
@@ -155,15 +173,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 使用者輸入任意 4 碼台股代號即時抓取正式資料（含券商分點日報表）並打開個股 K 線
+  // 使用者輸入任意 4 碼台股代號或名稱：若已快取則 0 秒打開並背景更新，若未快取則即時抓取並永久快取
   const handleLookupAnyStock = async e => {
     e.preventDefault();
-    const code = customLookupCode.trim();
-    if (!code) return;
+    const q = customLookupCode.trim();
+    if (!q) return;
 
-    const existing = stocks.find(s => s.code === code || s.name.includes(code));
-    const targetCode = existing ? existing.code : code;
+    const existing = stocks.find(s => s.code === q || s.name.includes(q));
+    if (existing && existing.hasRealBrokerReport) {
+      // 已在選股池或快取中且具備分點資料 -> 0 秒切換，背景靜默更新
+      setSelectedCode(existing.code);
+      if (existing.realBrokerReports?.[1]?.buyers?.[0]?.id) {
+        setInitialBrokerId(existing.realBrokerReports[1].buyers[0].id);
+      }
+      setActiveView('detail');
+      setCustomLookupCode('');
+      syncSingleStock(existing.code, existing, true);
+      return;
+    }
 
+    const targetCode = existing ? existing.code : q;
     setIsLookingUpSingle(true);
     const updated = await syncSingleStock(targetCode, existing || null, true);
     setIsLookingUpSingle(false);
@@ -180,7 +209,7 @@ export default function App() {
       setActiveView('detail');
       setCustomLookupCode('');
     } else {
-      alert(`查無台股代號「${code}」或公開 API 連線受限，請確認代號是否為 4 碼上市櫃股票（如 2317、3231、3017）。`);
+      alert(`查無台股代號「${q}」或公開 API 連線受限，請確認代號是否為 4 碼上市櫃股票（如 2317、3231、3017、8069）。`);
     }
   };
 
@@ -190,8 +219,14 @@ export default function App() {
     setSelectedCode(code);
     setActiveView('detail');
     const target = stocks.find(s => s.code === code);
-    if (target && !target.hasRealBrokerReport && dataSourceConfig.mode === 'live') {
-      syncSingleStock(code, target, true);
+    if (target) {
+      saveStockToLocalCache(target);
+      if (target.realBrokerReports?.[1]?.buyers?.[0]?.id) {
+        setInitialBrokerId(target.realBrokerReports[1].buyers[0].id);
+      }
+      if (!target.hasRealBrokerReport && dataSourceConfig.mode === 'live') {
+        syncSingleStock(code, target, true);
+      }
     }
   };
 
@@ -221,20 +256,20 @@ export default function App() {
       {/* 全域頂部導覽列 */}
       <header className="global-navbar" id="global-navbar">
         <div className="brand-area">
-          <div className="brand-logo">籌</div>
+          <div className="brand-logo">M</div>
           <div>
-            <h1 className="brand-title">籌碼K線・主力分點選股雷達</h1>
+            <h1 className="brand-title">MainBuy 主力雷達</h1>
             <span className="brand-subtitle">
               {syncState.status === 'syncing'
                 ? `🔄 正在同步證交所/櫃買/券商分點正式資料 (${syncState.syncedCount}/${syncState.totalCount})...`
                 : syncState.status === 'synced'
                   ? `🟢 正式資料連線中 (${syncState.brokerSource || '證交所/FinMind'}｜最新日: ${syncState.latestDate})`
-                  : '台股主力集中度 / 神秘分點 / 投信連買 / 隔日沖鎖碼即時監控'}
+                  : '台股主力買賣・投信轉折・關鍵分點動能選股系統'}
             </span>
           </div>
         </div>
 
-        {/* 主視圖切換頁籤 */}
+        {/* 主視圖切換頁籤：1.主力選股 / 2.個股K線 / 3.分點反查 */}
         <nav className="main-view-tabs" aria-label="主功能切換">
           <button
             className={`nav-tab-btn ${activeView === 'screener' ? 'active' : ''}`}
@@ -242,7 +277,7 @@ export default function App() {
             id="nav-btn-screener"
           >
             <span className="tab-step">1</span>
-            <span>籌碼選股與即時監控 (圖1)</span>
+            <span>主力選股 (動能轉折快篩)</span>
           </button>
           <button
             className={`nav-tab-btn ${activeView === 'detail' ? 'active' : ''}`}
@@ -250,7 +285,7 @@ export default function App() {
             id="nav-btn-detail"
           >
             <span className="tab-step">2</span>
-            <span>個股籌碼K線：{selectedStock.code} {selectedStock.name} (圖2)</span>
+            <span>個股K線：{selectedStock.code} {selectedStock.name}</span>
           </button>
           <button
             className={`nav-tab-btn ${activeView === 'radar' ? 'active' : ''}`}
@@ -258,24 +293,24 @@ export default function App() {
             id="nav-btn-radar"
           >
             <span className="tab-step">3</span>
-            <span>主力分點反查 & 隔日沖雷達</span>
+            <span>分點反查 & 隔日沖雷達</span>
           </button>
           <button
             className="nav-tab-btn formula-btn"
             onClick={() => setIsFormulaOpen(true)}
             id="nav-btn-formula"
           >
-            <span>欄位與公式說明 (圖3)</span>
+            <span>指標與公式說明</span>
           </button>
         </nav>
 
-        {/* 動態查詢任意台股代號 + 同步正式資料按鈕 + 外觀模式 */}
+        {/* 動態查詢任意台股代號（自動快取秒開） + 同步正式資料按鈕 + 外觀模式 */}
         <div className="navbar-right-controls">
           <form className="live-lookup-form" onSubmit={handleLookupAnyStock}>
             <input
               type="text"
               className="live-lookup-input"
-              placeholder="輸入任意台股代號(如 2317, 3231)..."
+              placeholder="搜尋任意台股代號/名稱(自動快取)..."
               value={customLookupCode}
               onChange={e => setCustomLookupCode(e.target.value)}
               id="input-live-stock-lookup"
@@ -286,7 +321,7 @@ export default function App() {
               disabled={isLookingUpSingle}
               id="btn-submit-live-lookup"
             >
-              {isLookingUpSingle ? '抓取中...' : '➕ 抓正式股價&分點'}
+              {isLookingUpSingle ? '抓取中...' : '🔍 查股&快取'}
             </button>
           </form>
 
@@ -309,15 +344,15 @@ export default function App() {
             id="select-theme-mode"
             title="切換配色模式"
           >
-            <option value="classic">原版配色 (圖1黑底 / 圖2白底)</option>
-            <option value="dark">全深色看盤模式</option>
+            <option value="dark">全深色旗艦模式 (推薦)</option>
+            <option value="classic">雙模配色 (選股黑底 / K線白底)</option>
             <option value="light">全淺色分析模式</option>
           </select>
 
           <button
             className="quick-stock-btn"
             onClick={() => setIsDataSourceOpen(true)}
-            title="資料來源與 API 串接設定"
+            title="資料來源與本機快取管理"
             id="btn-open-datasource"
           >
             ⚙️ 資料源
@@ -352,7 +387,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 欄位與公式說明彈窗 (對應圖 3) */}
+      {/* 欄位與公式說明彈窗 */}
       <FormulaModal isOpen={isFormulaOpen} onClose={() => setIsFormulaOpen(false)} />
 
       {/* 資料源與 API 設定彈窗 */}

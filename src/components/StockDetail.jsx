@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { computePeriodChipAnalysis, BROKER_LIST } from '../data/mockStocks';
+import { fetchSingleBrokerHistoryFromPortal } from '../services/liveStockService';
 
 // 通用副圖 SVG 元件（同時繪製紅綠柱狀圖 + 累計/庫存折線圖 + 同步十字查價線）
 function SubIndicatorChart({
@@ -12,7 +13,7 @@ function SubIndicatorChart({
   isKDJ = false
 }) {
   const width = 760;
-  const height = 56;
+  const height = 68;
   const padLeft = 6;
   const padRight = 54;
   const plotW = width - padLeft - padRight;
@@ -124,15 +125,18 @@ export default function StockDetail({
   const [hoverIdx, setHoverIdx] = useState(stock.kline.length - 1);
   const [chartRange, setChartRange] = useState(60); // 45(3月), 60(6月), 75(1年)
   const [overlayMode, setOverlayMode] = useState('bollinger'); // 'bollinger' | 'ma' | 'vbp' | 'brokerCost'
-  const [leftTab, setLeftTab] = useState('籌碼K線');
+  const [leftTab, setLeftTab] = useState('個股K線');
   const [rightTab, setRightTab] = useState('籌碼分析');
-  const [topBrokerFilter, setTopBrokerFilter] = useState('mystery'); // 'mystery' | 'topBuy15' | 'dayTrade'
+  const [topBrokerFilter, setTopBrokerFilter] = useState('topBuy15'); // 'mystery' | 'topBuy15' | 'dayTrade'
   const [bottomBrokerFilter, setBottomBrokerFilter] = useState('topSell15'); // 'topSell15' | 'foreign' | 'gov'
-  const [selectedBrokerIds, setSelectedBrokerIds] = useState(
-    initialBrokerId ? [initialBrokerId] : ['esun-chengzhong']
-  );
+  const [selectedBrokerIds, setSelectedBrokerIds] = useState(() => {
+    if (initialBrokerId) return [initialBrokerId];
+    const topBuyerId = stock.realBrokerReports?.[1]?.buyers?.[0]?.id;
+    return [topBuyerId || 'esun-chengzhong'];
+  });
+  const [dynamicBrokerHistories, setDynamicBrokerHistories] = useState({});
   const [creditSubMode, setCreditSubMode] = useState('short'); // 'short' | 'margin'
-  const [subchartPreset, setSubchartPreset] = useState(5); // 底部 1~6 面板組合切換
+  const [subchartPreset, setSubchartPreset] = useState(4); // 預設顯示 4 層高清晰副圖，可一鍵切 1~6 層
 
   // 個股筆記與到價提醒狀態 (持久化於 localStorage)
   const [stockNotes, setStockNotes] = useState(() => {
@@ -144,7 +148,7 @@ export default function StockDetail({
     }
   });
   const currentNote = stockNotes[stock.code] || {
-    memo: `【${stock.code} ${stock.name} 看盤重點】\n1. 觀察關鍵分點（如玉山-城中、美林、凱基-台北）在重要均線附近的連續買賣超。\n2. 搭配主1、主5、主10集中度與布林通道上下軌位階操作。`,
+    memo: `【${stock.code} ${stock.name} 看盤重點】\n1. 觀察關鍵分點（如買超第1名主力、外資、隔日沖分點）在重要均線附近的連續買賣超。\n2. 搭配主1、主5、主10集中度與布林通道上下軌位階操作。`,
     targetBuy: Number((stock.price * 0.95).toFixed(1)),
     stopLoss: Number((stock.price * 0.9).toFixed(1)),
     alertMain1: 15
@@ -169,7 +173,11 @@ export default function StockDetail({
   useEffect(() => {
     setEndDateIdx(stock.kline.length - 1);
     setHoverIdx(stock.kline.length - 1);
-  }, [stock.code, stock.kline.length]);
+    const topBuyerId = stock.realBrokerReports?.[1]?.buyers?.[0]?.id;
+    if (topBuyerId && !initialBrokerId) {
+      setSelectedBrokerIds([topBuyerId]);
+    }
+  }, [stock.code, stock.kline.length, stock.realBrokerReports, initialBrokerId]);
 
   useEffect(() => {
     if (initialBrokerId) {
@@ -194,10 +202,25 @@ export default function StockDetail({
     return computePeriodChipAnalysis(stock, endDateIdx, periodDays);
   }, [stock, endDateIdx, periodDays]);
 
+  // 當使用者點選某個真實分點時，若該分點含有 zco0Path 且尚未抓取 60 日真實逐日歷史，背景自動向券商網站抓取
+  useEffect(() => {
+    const primaryId = selectedBrokerIds[0];
+    if (!primaryId) return;
+    if (stock.realBrokerDailyHistory?.[primaryId] || dynamicBrokerHistories[primaryId]) return;
+    const brokerObj = chipAnalysis.allBrokers?.find(b => b.id === primaryId);
+    if (brokerObj?.zco0Path) {
+      fetchSingleBrokerHistoryFromPortal(brokerObj.zco0Path, stock.kline).then(series => {
+        if (series && Array.isArray(series)) {
+          setDynamicBrokerHistories(prev => ({ ...prev, [primaryId]: series }));
+        }
+      });
+    }
+  }, [selectedBrokerIds, stock.code, stock.kline, stock.realBrokerDailyHistory, chipAnalysis.allBrokers, dynamicBrokerHistories]);
+
   // 計算所勾選券商分點（可單選或複選「組群」）在可見區間內的每日買賣超與累計買賣超及成本線
   const selectedBrokerDailyData = useMemo(() => {
     const ids = selectedBrokerIds.length > 0 ? selectedBrokerIds : ['esun-chengzhong'];
-    let runningCum = -480;
+    let runningCum = 0;
     let runningCostSum = 0;
     let runningBuyLots = 0;
 
@@ -208,7 +231,10 @@ export default function StockDetail({
       let dayProfitWan = 0;
 
       ids.forEach(id => {
-        const series = stock.brokerSeries[id];
+        const series =
+          dynamicBrokerHistories[id] ||
+          stock.realBrokerDailyHistory?.[id] ||
+          stock.brokerSeries?.[id];
         const rec = series?.[day.index];
         if (rec) {
           buy += rec.buy;
@@ -237,7 +263,7 @@ export default function StockDetail({
         profitWan: dayProfitWan
       };
     });
-  }, [stock, visibleKline, selectedBrokerIds]);
+  }, [stock, visibleKline, selectedBrokerIds, dynamicBrokerHistories]);
 
   const hoveredBrokerPoint =
     selectedBrokerDailyData[localHoverIdx] ||
@@ -525,7 +551,7 @@ export default function StockDetail({
         <div className="detail-left-pane">
           {/* 子功能頁籤列 */}
           <div className="chart-subtabs-bar">
-            {['籌碼K線', '即時走勢', '分點K線', '大單券商', '主力地圖', '個股分析', '細產業', '筆記'].map(
+            {['個股K線', '即時走勢', '分點K線', '大單券商', '主力地圖', '個股分析', '細產業', '筆記'].map(
               tab => (
                 <button
                   key={tab}
@@ -543,7 +569,7 @@ export default function StockDetail({
           </div>
 
           {/* 依據左側子頁籤切換對應專業視圖 */}
-          {leftTab === '籌碼K線' || leftTab === '分點K線' ? (
+          {leftTab === '個股K線' || leftTab === '分點K線' ? (
             <>
               {/* 主圖疊加指標切換列 */}
               <div className="overlay-toolbar">
@@ -1152,8 +1178,8 @@ export default function StockDetail({
             </div>
           ) : leftTab === '個股分析' || leftTab === '細產業' ? (
             <div className="tab-custom-content">
-              <h3>🏭 【{stock.industry}】同產業個股籌碼集中度與估值比價表</h3>
-              <p className="tab-subdesc">點擊任一同業個股可立即切換檢視其籌碼 K 線</p>
+              <h3>🏭 【{stock.industry}】同產業個股主力集中度與估值比價表</h3>
+              <p className="tab-subdesc">點擊任一同業個股可立即切換檢視其個股 K 線與分點明細</p>
               <table className="broker-table">
                 <thead>
                   <tr>
@@ -1196,9 +1222,9 @@ export default function StockDetail({
               </table>
             </div>
           ) : (
-            /* 筆記與到價/籌碼提醒設定 */
+            /* 筆記與到價/主力提醒設定 */
             <div className="tab-custom-content">
-              <h3>📝 {stock.code} {stock.name} 專屬交易筆記與籌碼異動監控設定</h3>
+              <h3>📝 {stock.code} {stock.name} 專屬交易筆記與主力異動監控設定</h3>
               <div className="notes-form-grid">
                 <label className="calc-field">
                   <span>理想低接買進價 (元)</span>
@@ -1237,16 +1263,16 @@ export default function StockDetail({
           )}
         </div>
 
-        {/* 右側面板：籌碼集中度看板 + 基本面 9 宮格 + 關鍵/買賣超前15名券商分點明細（對應圖 2 右半部） */}
+        {/* 右側面板：主力集中度看板 + 基本面 9 宮格 + 關鍵/買賣超前15名券商分點明細 */}
         <div className="detail-right-pane">
           {/* 右側子頁籤 */}
           <div className="right-subtabs-bar">
             {[
-              { id: '籌碼分析', label: '籌碼分析' },
+              { id: '籌碼分析', label: '主力分析' },
               { id: '體檢表', label: '體檢表' },
               { id: '重大事件', label: '重大事件(1)', isRed: true },
               { id: '新聞', label: '新聞' },
-              { id: '分點細膩', label: '分點細膩' },
+              { id: '分點細膩', label: '分點逐日明細' },
               { id: '法人目標', label: `法人目標(${stock.targetPrice}元)`, isRed: true }
             ].map(t => (
               <button
@@ -1271,7 +1297,7 @@ export default function StockDetail({
 
           {rightTab === '籌碼分析' ? (
             <>
-              {/* 籌碼統計區間摘要 + 主力動向大看板 */}
+              {/* 主力統計區間摘要 + 主力動向大看板 */}
               <div className="chip-summary-grid">
                 <div className="chip-metrics-table">
                   <div className="metric-row">
@@ -1284,15 +1310,15 @@ export default function StockDetail({
                   </div>
                   <div className="metric-row">
                     <span className="m-label">買超前15名合計</span>
-                    <span className="m-val">{chipAnalysis.top15BuySum.toLocaleString()} 張</span>
+                    <span className="m-val val-up">+{chipAnalysis.top15BuySum.toLocaleString()} 張</span>
                   </div>
                   <div className="metric-row">
                     <span className="m-label">賣超前15名合計</span>
-                    <span className="m-val">{chipAnalysis.top15SellSum.toLocaleString()} 張</span>
+                    <span className="m-val val-down">{chipAnalysis.top15SellSum.toLocaleString()} 張</span>
                   </div>
                   <div className="metric-row">
                     <span className="m-label">
-                      {periodDays}日籌碼集中
+                      {periodDays}日主力差額
                       <span className="help-q" onClick={onOpenFormulaModal} title="點擊查看主1/主5/主10公式">?</span>
                     </span>
                     <span className={`m-val ${chipAnalysis.chipNet >= 0 ? 'val-up' : 'val-down'}`}>
@@ -1301,7 +1327,7 @@ export default function StockDetail({
                   </div>
                   <div className="metric-row">
                     <span className="m-label">
-                      {periodDays}日籌碼集中(%)
+                      {periodDays}日主力集中(%)
                       <span className="help-q" onClick={onOpenFormulaModal}>?</span>
                     </span>
                     <span className={`m-val ${chipAnalysis.chipConcentrationPct >= 0 ? 'val-up' : 'val-down'}`}>
@@ -1309,7 +1335,7 @@ export default function StockDetail({
                     </span>
                   </div>
                   <div className="metric-row">
-                    <span className="m-label">20日籌碼集中(%)</span>
+                    <span className="m-label">20日主力集中(%)</span>
                     <span className={`m-val ${chipAnalysis.chip20Pct >= 0 ? 'val-up' : 'val-down'}`}>
                       {chipAnalysis.chip20Pct} %
                     </span>
@@ -1324,7 +1350,7 @@ export default function StockDetail({
                   </div>
                 </div>
 
-                {/* 主力動向大看板（大買紅框 / 大賣綠框，完全對應圖 2） */}
+                {/* 主力動向大看板 */}
                 <div className={`main-force-card ${chipAnalysis.isBullish ? 'bullish' : 'bearish'}`}>
                   <div className="mf-card-header">
                     <div>{stock.kline[endDateIdx]?.shortDate || '今日'} ({periodDays}日)</div>
@@ -1337,7 +1363,26 @@ export default function StockDetail({
                 </div>
               </div>
 
-              {/* 基本面 9 宮格快覽列（完全對應圖 2 中段） */}
+              {/* 方案 C 視覺升級：前 15 大買方 vs 賣方紅綠拔河條 */}
+              {(() => {
+                const bSum = Math.max(1, chipAnalysis.top15BuySum);
+                const sSum = Math.max(1, Math.abs(chipAnalysis.top15SellSum));
+                const buyPct = Math.round((bSum / (bSum + sSum)) * 100);
+                return (
+                  <div className="detail-tug-strip">
+                    <div className="tug-bar-track">
+                      <div className="tug-bar-buy" style={{ width: `${buyPct}%` }}>
+                        買超前15名 +{chipAnalysis.top15BuySum.toLocaleString()}張 ({buyPct}%)
+                      </div>
+                      <div className="tug-bar-sell" style={{ width: `${100 - buyPct}%` }}>
+                        賣超前15名 {chipAnalysis.top15SellSum.toLocaleString()}張 ({100 - buyPct}%)
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 基本面 9 宮格快覽列 */}
               <div className="fundamental-strip">
                 <div className="fund-cell">
                   <div className="fund-title">累計營收<br />YoY(%)</div>

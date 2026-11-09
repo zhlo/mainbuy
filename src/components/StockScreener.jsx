@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { computePeriodChipAnalysis, computeStockMomentum } from '../data/mockStocks';
 
-// 繪製參考圖 1 中的迷你 K 棒 SVG
+// 繪製迷你 K 棒 SVG
 function MiniCandle({ type }) {
   switch (type) {
     case 'red-high':
@@ -49,13 +50,225 @@ function MiniCandle({ type }) {
   }
 }
 
+// 近 10 日買賣超紅綠熱力格 (10-Day Sparkbar)
+function Recent10Sparkbar({ values = [] }) {
+  const arr = values.length > 0 ? values.slice(-10) : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const maxAbs = Math.max(10, ...arr.map(v => Math.abs(v)));
+  return (
+    <div className="sparkbar-10d" title={`近10日逐日買賣超(張): ${arr.join(', ')}`}>
+      {arr.map((v, idx) => {
+        const hPct = Math.max(22, Math.min(100, Math.round((Math.abs(v) / maxAbs) * 100)));
+        const isLast = idx === arr.length - 1;
+        const cls = v > 0 ? 'sb-up' : v < 0 ? 'sb-down' : 'sb-flat';
+        return (
+          <span
+            key={idx}
+            className={`sb-bar ${cls} ${isLast ? 'sb-today' : ''}`}
+            style={{ height: `${hPct}%` }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// 右側免跳頁「個股 K 線與分點拔河快覽抽屜」元件
+function QuickStockPreviewDrawer({ stock, onClose, onExpandFullDetail }) {
+  if (!stock) return null;
+  const recentKline = (stock.kline || []).slice(-40);
+  const chip1D = useMemo(
+    () => computePeriodChipAnalysis(stock, stock.kline.length - 1, 1),
+    [stock]
+  );
+  const mom = stock.momentum || computeStockMomentum(stock.kline || []);
+
+  // 繪製 40 日精簡 K 線 + 20MA + 成交量
+  const width = 360;
+  const height = 165;
+  const kTop = 10;
+  const kBottom = 122;
+  const kH = kBottom - kTop;
+  const vTop = 130;
+  const vBottom = 160;
+  const vH = vBottom - vTop;
+  const padX = 8;
+  const plotW = width - padX * 2;
+  const count = Math.max(1, recentKline.length);
+  const stepX = plotW / count;
+  const barW = Math.max(2.5, Math.min(6.5, stepX * 0.65));
+
+  const prices = recentKline.flatMap(d => [d.high, d.low, d.ma20 || d.close]);
+  const maxP = Math.max(...prices, 1);
+  const minP = Math.min(...prices, 0);
+  const spanP = Math.max(0.5, maxP - minP);
+  const toY = p => kBottom - ((p - minP) / spanP) * kH;
+  const maxV = Math.max(100, ...recentKline.map(d => d.volume));
+
+  const ma20Pts = recentKline
+    .map((d, i) => `${(padX + i * stepX + stepX / 2).toFixed(1)},${toY(d.ma20 || d.close).toFixed(1)}`)
+    .join(' ');
+  const ma5Pts = recentKline
+    .map((d, i) => `${(padX + i * stepX + stepX / 2).toFixed(1)},${toY(d.ma5 || d.close).toFixed(1)}`)
+    .join(' ');
+
+  const buyAbs = Math.max(1, chip1D.top15BuySum);
+  const sellAbs = Math.max(1, Math.abs(chip1D.top15SellSum));
+  const totalTug = buyAbs + sellAbs;
+  const buyRatioPct = Math.round((buyAbs / totalTug) * 100);
+
+  return (
+    <aside className="screener-preview-drawer" id="screener-preview-drawer">
+      <div className="preview-drawer-header">
+        <div>
+          <div className="preview-stock-title">
+            <span className="preview-code">{stock.code}</span>
+            <strong className="preview-name">{stock.name}</strong>
+            <span className="preview-industry-tag">{stock.industry}</span>
+          </div>
+          <div className="preview-price-row">
+            <span className={`preview-price ${stock.changePct >= 0 ? 'cell-red' : 'cell-green'}`}>
+              {stock.price}
+            </span>
+            <span className={`preview-chg ${stock.changePct >= 0 ? 'cell-red' : 'cell-green'}`}>
+              {stock.change >= 0 ? `▲ +${stock.change}` : `▼ ${stock.change}`} ({stock.changePct}%)
+            </span>
+            <span className="preview-vol">量 {stock.volume.toLocaleString()} 張</span>
+          </div>
+        </div>
+        <div className="preview-header-actions">
+          <button
+            className="btn-expand-detail"
+            onClick={() => onExpandFullDetail(stock.code)}
+            title="進入步驟 2 完整個股 K 線與分點工作站"
+            id="btn-expand-full-kline"
+          >
+            ⤢ 完整個股K線
+          </button>
+          <button className="btn-close-preview" onClick={onClose} title="收合右側快覽">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* 三大動能轉折狀態膠囊 */}
+      <div className="preview-momentum-strip">
+        <div className="pm-item">
+          <span className="pm-label">主力動能</span>
+          <strong className={mom.main?.todayNet >= 0 ? 'cell-red' : 'cell-green'}>
+            {mom.main?.stageLabel}
+          </strong>
+          <small>近5日 {mom.main?.buyDays5}/5 買</small>
+        </div>
+        <div className="pm-item">
+          <span className="pm-label">投信動能</span>
+          <strong className={mom.trust?.todayNet >= 0 ? 'cell-red' : 'cell-green'}>
+            {mom.trust?.stageLabel}
+          </strong>
+          <small>近5日 {mom.trust?.buyDays5}/5 買</small>
+        </div>
+        <div className="pm-item">
+          <span className="pm-label">外資動能</span>
+          <strong className={mom.foreign?.todayNet >= 0 ? 'cell-red' : 'cell-green'}>
+            {mom.foreign?.stageLabel}
+          </strong>
+          <small>持股 {stock.kline?.[stock.kline.length - 1]?.foreignHoldPct || '--'}%</small>
+        </div>
+      </div>
+
+      {/* 迷你 40 日 K 線與成交量快覽圖 */}
+      <div className="preview-chart-card">
+        <div className="preview-card-title">
+          <span>📈 近 40 日 K 線與均線軌跡</span>
+          <span className="preview-ma-legend">
+            <i style={{ color: '#3b82f6' }}>—5MA</i> <i style={{ color: '#ef4444' }}>—20MA</i>
+          </span>
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} className="preview-kline-svg">
+          <line x1={padX} y1={kTop} x2={width - padX} y2={kTop} stroke="rgba(148,163,184,0.15)" />
+          <line x1={padX} y1={(kTop + kBottom) / 2} x2={width - padX} y2={(kTop + kBottom) / 2} stroke="rgba(148,163,184,0.15)" strokeDasharray="2 2" />
+          <line x1={padX} y1={kBottom} x2={width - padX} y2={kBottom} stroke="rgba(148,163,184,0.2)" />
+          <polyline fill="none" stroke="#3b82f6" strokeWidth="1.2" points={ma5Pts} />
+          <polyline fill="none" stroke="#ef4444" strokeWidth="1.3" points={ma20Pts} />
+          {recentKline.map((d, i) => {
+            const cx = padX + i * stepX + stepX / 2;
+            const x = padX + i * stepX + (stepX - barW) / 2;
+            const isUp = d.close >= d.open;
+            const col = isUp ? '#ef4444' : '#22c55e';
+            const yHigh = toY(d.high);
+            const yLow = toY(d.low);
+            const yOpen = toY(d.open);
+            const yClose = toY(d.close);
+            const bTop = Math.min(yOpen, yClose);
+            const bH = Math.max(2, Math.abs(yClose - yOpen));
+            const vBarH = Math.max(2, (d.volume / maxV) * vH);
+            return (
+              <g key={d.date}>
+                <line x1={cx} y1={yHigh} x2={cx} y2={yLow} stroke={col} strokeWidth="1" />
+                <rect x={x} y={bTop} width={barW} height={bH} fill={col} />
+                <rect x={x} y={vBottom - vBarH} width={barW} height={vBarH} fill={col} opacity="0.6" />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* 主力買賣超前 15 名紅綠拔河條 */}
+      <div className="preview-tug-card">
+        <div className="preview-card-title">
+          <span>⚖️ 當日主力分點多空拔河 (主1: {stock.main1}%)</span>
+          <strong className={chip1D.chipNet >= 0 ? 'cell-red' : 'cell-green'}>
+            差額 {chip1D.chipNet >= 0 ? `+${chip1D.chipNet}` : chip1D.chipNet} 張
+          </strong>
+        </div>
+        <div className="tug-bar-track">
+          <div className="tug-bar-buy" style={{ width: `${buyRatioPct}%` }}>
+            買方 +{chip1D.top15BuySum}張 ({buyRatioPct}%)
+          </div>
+          <div className="tug-bar-sell" style={{ width: `${100 - buyRatioPct}%` }}>
+            賣方 {chip1D.top15SellSum}張
+          </div>
+        </div>
+
+        {/* 前 5 大買超 vs 賣超分點對照 */}
+        <div className="preview-top5-grid">
+          <div className="preview-top5-col">
+            <div className="top5-col-head cell-red">買超前 5 大分點</div>
+            {chip1D.topBuyers.slice(0, 5).map(b => (
+              <div key={b.id} className="top5-row">
+                <span className="top5-bname">{b.name}</span>
+                <strong className="cell-red">+{b.net}張</strong>
+              </div>
+            ))}
+          </div>
+          <div className="preview-top5-col">
+            <div className="top5-col-head cell-green">賣超前 5 大分點</div>
+            {chip1D.topSellers.slice(0, 5).map(b => (
+              <div key={b.id} className="top5-row">
+                <span className="top5-bname">{b.name}</span>
+                <strong className="cell-green">{b.net}張</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <button
+        className="btn-full-detail-bottom"
+        onClick={() => onExpandFullDetail(stock.code)}
+      >
+        🔍 進入「2. 個股K線」查看 60 日分點明細與完整副圖 →
+      </button>
+    </aside>
+  );
+}
+
 const PRESET_STRATEGIES = {
   chip: [
     { id: 'main-surge', label: '主力集中飆升 (主1 ≥ 20%)', desc: '當日主力買賣超集中度 ≥ 20%', check: s => s.main1 >= 20 },
     { id: 'main-wave', label: '主力波段鎖碼 (主1/主5/主10皆≥10%)', desc: '短中長天期主力同步集中買進', check: s => s.main1 >= 10 && s.main5 >= 10 && s.main10 >= 10 },
-    { id: 'trust-streak', label: '投信連買作帳 (投信連買 ≥ 2日)', desc: '投信法人連續買超 ≥ 2 日且投信% > 10%', check: s => s.trustConsec >= 2 && s.trustPct >= 10 },
+    { id: 'trust-streak', label: '投信連買作帳 (投信連買 ≥ 2日)', desc: '投信法人連續買超 ≥ 2 日', check: s => s.trustConsec >= 2 },
     { id: 'dual-inst', label: '外資投信同買 (主力/外資/投信連買>0)', desc: '主力、外資、投信同步連買共振', check: s => s.mainConsec > 0 && s.foreignConsec > 0 && s.trustConsec > 0 },
-    { id: 'low-pb-company', label: '股淨比 < 0.5 公司派大買 (圖3)', desc: '股價淨值比低於 0.5 且主力集中買超，容易是長線低點', check: s => s.pb < 0.5 && s.main1 > 0 }
+    { id: 'low-pb-company', label: '股淨比 < 0.5 公司派大買', desc: '股價淨值比低於 0.5 且主力集中買超，容易是長線低點', check: s => s.pb < 0.5 && s.main1 > 0 }
   ],
   tech: [
     { id: 'boll-squeeze', label: '布林通道壓縮突破 (帶寬 ≤ 12 & 位階 ≥ 6)', desc: '布林帶寬收斂後向上突破通道上軌', check: s => s.bandWidth <= 12 && s.bandPos >= 6 },
@@ -71,7 +284,7 @@ const PRESET_STRATEGIES = {
   fundamental: [
     { id: 'rev-growth', label: '營收高成長 (YOY ≥ 25% & MOM > 0%)', desc: '年營收成長率 ≥ 25% 且月營收正成長', check: s => s.revYoY >= 25 && s.revMoM > 0 },
     { id: 'high-yield', label: '高殖利率定存 (殖利率 ≥ 4% & 連續年 ≥ 10)', desc: '殖利率 ≥ 4% 且連續配息超過 10 年', check: s => s.dividendYield >= 4 && s.divYears >= 10 },
-    { id: 'maint-warn', label: '融資維持率 < 130% 警戒 (圖3)', desc: '維持率低於 130%，融資過高易多殺多', check: s => s.maintRatio < 130 }
+    { id: 'maint-warn', label: '融資維持率 < 130% 警戒', desc: '維持率低於 130%，融資過高易多殺多', check: s => s.maintRatio < 130 }
   ]
 };
 
@@ -85,7 +298,7 @@ const DEFAULT_SAVED_STRATEGIES = [
   },
   {
     id: 'preset-value-bottom',
-    name: '💎 低股淨比公司派大買 (圖3)',
+    name: '💎 低股淨比公司派大買',
     marketScope: 'ALL',
     strategyIds: ['low-pb-company'],
     customFilters: { minMain1: '15', minMain5: '', minTrustConsec: '', maxPb: '0.5', minRevYoY: '', maxMaintRatio: '' }
@@ -99,6 +312,51 @@ const DEFAULT_SAVED_STRATEGIES = [
   }
 ];
 
+// 動能階段選項定義
+const MOMENTUM_STAGES = [
+  { id: 'ALL', label: '全部階段', desc: '顯示所有個股' },
+  { id: 'DAY1_BUY', label: '🔥 轉折第1天買', desc: '昨日以前連續賣超或觀望，今日第 1 天正式轉為買超！' },
+  { id: 'BUY_5D', label: '📈 5天內偏買', desc: '近 5 個交易日內買超 ≥ 3 天且近 5 日合計買超 > 0' },
+  { id: 'BUY_10D', label: '🚀 10天內偏買', desc: '近 10 個交易日內買超 ≥ 6 天且近 10 日合計買超 > 0' },
+  { id: 'BUY_20D', label: '💎 近期偏買(20日)', desc: '近 20 個交易日內買超 ≥ 11 天且波段合計買超 > 0' },
+  { id: 'DAY1_SELL', label: '⚠️ 轉折第1天賣', desc: '昨日以前買超，今日第 1 天轉為賣超調節' },
+  { id: 'SELL_BEAR', label: '📉 5天/10天偏賣', desc: '近 5 日或近 10 日持續偏空調節賣超' }
+];
+
+function checkMomentumMatch(stock, target, stage) {
+  if (stage === 'ALL') return true;
+  const mom = stock.momentum || computeStockMomentum(stock.kline || []);
+
+  const matchSingle = mObj => {
+    if (!mObj) return false;
+    switch (stage) {
+      case 'DAY1_BUY':
+        return Boolean(mObj.isDay1Buy);
+      case 'BUY_5D':
+        return Boolean(mObj.is5DBuy);
+      case 'BUY_10D':
+        return Boolean(mObj.is10DBuy);
+      case 'BUY_20D':
+        return Boolean(mObj.is20DBuy);
+      case 'DAY1_SELL':
+        return Boolean(mObj.isDay1Sell);
+      case 'SELL_BEAR':
+        return Boolean(mObj.is5DSell || mObj.is10DSell);
+      default:
+        return true;
+    }
+  };
+
+  if (target === 'dual') {
+    // 主力 + 投信同步符合偏買或指定階段
+    if (stage === 'DAY1_BUY') {
+      return (mom.main?.isDay1Buy || mom.main?.is5DBuy) && (mom.trust?.isDay1Buy || mom.trust?.is5DBuy);
+    }
+    return matchSingle(mom.main) && matchSingle(mom.trust);
+  }
+  return matchSingle(mom[target]);
+}
+
 export default function StockScreener({
   stocks,
   pinnedCodes,
@@ -108,13 +366,20 @@ export default function StockScreener({
 }) {
   const [marketScope, setMarketScope] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategoryDrawer, setActiveCategoryDrawer] = useState(null); // 'chip' | 'tech' | 'intraday' | 'fundamental' | 'custom' | 'saved'
+  // 方案 C 核心：動能目標 ('main' | 'trust' | 'foreign' | 'dual') 與動能階段
+  const [momentumTarget, setMomentumTarget] = useState('main');
+  const [momentumStage, setMomentumStage] = useState('ALL');
+  // 方案 C 核心：右側免跳頁個股 K 線與分點快覽抽屜
+  const [previewCode, setPreviewCode] = useState('2330');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(true);
+
+  const [activeCategoryDrawer, setActiveCategoryDrawer] = useState(null);
   const [activeStrategyIds, setActiveStrategyIds] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
-  const [columnMode, setColumnMode] = useState('fig1'); // 'fig1' | 'fig3' | 'all'
+  const [columnMode, setColumnMode] = useState('fig1');
   const [countdown, setCountdown] = useState(5);
   const [isLivePaused, setIsLivePaused] = useState(false);
-  const [taiexTick, setTaiexTick] = useState({ index: 16032, futures: 15983, diff: 1 });
+  const [taiexTick, setTaiexTick] = useState({ index: 22850, futures: 22868, diff: 18 });
   const [newStrategyName, setNewStrategyName] = useState('');
 
   // 自訂儲存策略清單 (持久化於 localStorage)
@@ -137,7 +402,6 @@ export default function StockScreener({
     maxMaintRatio: ''
   });
 
-  // 模擬圖 1 頂部「=5秒 0」即時刷價倒數
   useEffect(() => {
     if (isLivePaused) return;
     const timer = setInterval(() => {
@@ -166,6 +430,7 @@ export default function StockScreener({
   const clearAllConditions = () => {
     setMarketScope('ALL');
     setSearchQuery('');
+    setMomentumStage('ALL');
     setActiveStrategyIds([]);
     setActiveCategoryDrawer(null);
     setCustomFilters({
@@ -185,6 +450,8 @@ export default function StockScreener({
       id: `custom-${Date.now()}`,
       name: title,
       marketScope,
+      momentumTarget,
+      momentumStage,
       strategyIds: activeStrategyIds,
       customFilters: { ...customFilters }
     };
@@ -200,6 +467,8 @@ export default function StockScreener({
 
   const handleApplySavedStrategy = item => {
     setMarketScope(item.marketScope || 'ALL');
+    if (item.momentumTarget) setMomentumTarget(item.momentumTarget);
+    if (item.momentumStage) setMomentumStage(item.momentumStage);
     setActiveStrategyIds(item.strategyIds || []);
     setCustomFilters(
       item.customFilters || {
@@ -242,8 +511,21 @@ export default function StockScreener({
     ];
   }, []);
 
+  // 統計各動能階段符合檔數（即時顯示於按鈕上）
+  const stageCounts = useMemo(() => {
+    const counts = {};
+    MOMENTUM_STAGES.forEach(st => {
+      counts[st.id] = stocks.filter(s => checkMomentumMatch(s, momentumTarget, st.id)).length;
+    });
+    return counts;
+  }, [stocks, momentumTarget]);
+
   const hasCustomFilter = Object.values(customFilters).some(v => v !== '');
-  const totalFilterCount = activeStrategyIds.length + (hasCustomFilter ? 1 : 0) + (marketScope !== 'ALL' ? 1 : 0);
+  const totalFilterCount =
+    activeStrategyIds.length +
+    (hasCustomFilter ? 1 : 0) +
+    (marketScope !== 'ALL' ? 1 : 0) +
+    (momentumStage !== 'ALL' ? 1 : 0);
 
   const filteredStocks = useMemo(() => {
     let list = [...stocks];
@@ -255,12 +537,16 @@ export default function StockScreener({
       list = list.filter(s => s.market === '上櫃');
     } else if (marketScope === 'PINNED') {
       list = list.filter(s => pinnedCodes.includes(s.code));
-    } else if (marketScope === 'FIG1') {
-      const fig1Codes = ['2227', '1536', '6230', '1590', '6510', '3529', '3702', '9914', '2301', '1477'];
-      list = list.filter(s => fig1Codes.includes(s.code));
+    } else if (marketScope === 'CACHED') {
+      list = list.filter(s => s.isUserCached);
     }
 
-    // 2. 搜尋關鍵字
+    // 2. 動能轉折階段篩選 (第1天買 / 5天偏買 / 10天偏買 / 近期偏買 / 第1天賣 / 偏賣)
+    if (momentumStage !== 'ALL') {
+      list = list.filter(s => checkMomentumMatch(s, momentumTarget, momentumStage));
+    }
+
+    // 3. 搜尋關鍵字
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(
@@ -271,13 +557,13 @@ export default function StockScreener({
       );
     }
 
-    // 3. 策略標籤篩選
+    // 4. 策略標籤篩選
     if (activeStrategyIds.length > 0) {
       const activeChecks = allStrategiesList.filter(st => activeStrategyIds.includes(st.id));
       list = list.filter(s => activeChecks.every(st => st.check(s)));
     }
 
-    // 4. 自訂數值條件
+    // 5. 自訂數值條件
     if (customFilters.minMain1 !== '') {
       list = list.filter(s => s.main1 >= Number(customFilters.minMain1));
     }
@@ -297,7 +583,7 @@ export default function StockScreener({
       list = list.filter(s => s.maintRatio <= Number(customFilters.maxMaintRatio));
     }
 
-    // 5. 排序（置頂股永遠優先）
+    // 6. 排序（置頂股永遠優先）
     list.sort((a, b) => {
       const aPinned = pinnedCodes.includes(a.code) ? 1 : 0;
       const bPinned = pinnedCodes.includes(b.code) ? 1 : 0;
@@ -315,7 +601,27 @@ export default function StockScreener({
     });
 
     return list;
-  }, [stocks, marketScope, searchQuery, activeStrategyIds, customFilters, sortConfig, pinnedCodes, allStrategiesList]);
+  }, [
+    stocks,
+    marketScope,
+    momentumTarget,
+    momentumStage,
+    searchQuery,
+    activeStrategyIds,
+    customFilters,
+    sortConfig,
+    pinnedCodes,
+    allStrategiesList
+  ]);
+
+  const previewStock = useMemo(() => {
+    return (
+      filteredStocks.find(s => s.code === previewCode) ||
+      stocks.find(s => s.code === previewCode) ||
+      filteredStocks[0] ||
+      stocks[0]
+    );
+  }, [filteredStocks, stocks, previewCode]);
 
   // 匯出當前選股結果為 CSV
   const handleExportCsv = () => {
@@ -326,6 +632,8 @@ export default function StockScreener({
       '漲跌幅(%)',
       '成交量',
       '細產業分類',
+      '主力動能狀態',
+      '投信動能狀態',
       '主力連買',
       '外資連買',
       '投信連買',
@@ -348,6 +656,8 @@ export default function StockScreener({
       s.changePct,
       s.volume,
       s.industry,
+      s.momentum?.main?.stageLabel || '',
+      s.momentum?.trust?.stageLabel || '',
       s.mainConsec,
       s.foreignConsec,
       s.trustConsec,
@@ -369,12 +679,11 @@ export default function StockScreener({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `籌碼選股清單_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `MainBuy主力選股清單_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  // 數值紅綠顏色輔助函式（台股紅漲綠跌 / 紅正綠負 / 0白色）
   const getSignedColorClass = val => {
     if (val > 0) return 'cell-red';
     if (val < 0) return 'cell-green';
@@ -383,31 +692,32 @@ export default function StockScreener({
 
   const showFig1Cols = columnMode === 'fig1' || columnMode === 'all';
   const showFig3Cols = columnMode === 'fig3' || columnMode === 'all';
+  const cachedCount = stocks.filter(s => s.isUserCached).length;
 
   return (
     <section className="screener-container" id="screener-section">
-      {/* 參考圖 1 頂部監控工具列 */}
+      {/* 頂部監控工具列 */}
       <div className="screener-toolbar">
         <div className="toolbar-left">
-          <span className="toolbar-label">監控對象</span>
+          <span className="toolbar-label">選股範圍</span>
           <select
             className="monitor-select"
             value={marketScope}
             onChange={e => setMarketScope(e.target.value)}
             id="select-monitor-target"
           >
-            <option value="ALL">台股上市櫃 ({stocks.length})</option>
-            <option value="FIG1">圖1精選監控股 (10)</option>
+            <option value="ALL">台股熱門選股池 ({stocks.length})</option>
             <option value="LISTED">台股上市</option>
             <option value="OTC">台股上櫃</option>
-            <option value="PINNED">自選置頂股 ({pinnedCodes.length})</option>
+            <option value="PINNED">★ 自選置頂股 ({pinnedCodes.length})</option>
+            <option value="CACHED">⚡ 曾搜尋快取股 ({cachedCount})</option>
           </select>
 
           <div className="quick-search-wrap">
             <input
               type="text"
               className="toolbar-search-input"
-              placeholder="輸入代號/名稱/細產業..."
+              placeholder="篩選代號/名稱/產業..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               id="input-screener-search"
@@ -430,28 +740,28 @@ export default function StockScreener({
               onClick={() => setActiveCategoryDrawer(prev => (prev === 'chip' ? null : 'chip'))}
               id="btn-tab-chip"
             >
-              籌碼面
+              主力策略
             </button>
             <button
               className={`btn-strategy-tab ${activeCategoryDrawer === 'tech' ? 'active' : ''}`}
               onClick={() => setActiveCategoryDrawer(prev => (prev === 'tech' ? null : 'tech'))}
               id="btn-tab-tech"
             >
-              技術面
+              技術突破
             </button>
             <button
               className={`btn-strategy-tab ${activeCategoryDrawer === 'intraday' ? 'active' : ''}`}
               onClick={() => setActiveCategoryDrawer(prev => (prev === 'intraday' ? null : 'intraday'))}
               id="btn-tab-intraday"
             >
-              即時面
+              盤中大單
             </button>
             <button
               className={`btn-strategy-tab ${activeCategoryDrawer === 'fundamental' ? 'active' : ''}`}
               onClick={() => setActiveCategoryDrawer(prev => (prev === 'fundamental' ? null : 'fundamental'))}
               id="btn-tab-fundamental"
             >
-              基本面(圖3)
+              價值基本面
             </button>
             <button
               className={`btn-strategy-tab ${activeCategoryDrawer === 'saved' ? 'active' : ''}`}
@@ -470,7 +780,7 @@ export default function StockScreener({
           </div>
         </div>
 
-        {/* 中央加權與期貨即時跳動報價（對應圖 1） */}
+        {/* 中央加權與期貨即時報價 */}
         <div className="toolbar-center-quotes">
           <div className="market-quote-box">
             <span className="quote-name">加權</span>
@@ -487,7 +797,7 @@ export default function StockScreener({
             className="market-quote-box refresh-box"
             onClick={() => setIsLivePaused(p => !p)}
             style={{ cursor: 'pointer' }}
-            title="點擊可暫停/恢復每 5 秒自動更新盤中報價"
+            title="點擊可暫停/恢復每 5 秒自動更新"
           >
             <span className="quote-name orange">=5秒</span>
             <span className="quote-val">{isLivePaused ? '暫停' : countdown === 5 ? 0 : countdown}</span>
@@ -504,7 +814,7 @@ export default function StockScreener({
             onClick={() => setActiveCategoryDrawer(prev => (prev === 'custom' ? null : 'custom'))}
             id="btn-open-custom-filter"
           >
-            篩選
+            數值門檻
           </button>
           <select
             className="column-mode-select"
@@ -513,10 +823,18 @@ export default function StockScreener({
             id="select-column-mode"
             title="切換顯示欄位組合"
           >
-            <option value="fig1">欄位：圖1標準看盤</option>
-            <option value="fig3">欄位：圖3公式與基本面</option>
-            <option value="all">欄位：全部展開</option>
+            <option value="fig1">欄位：主力動能標準版</option>
+            <option value="fig3">欄位：估值與維持率版</option>
+            <option value="all">欄位：全欄位展開</option>
           </select>
+          <button
+            className={`btn-toolbar-action ${isPreviewOpen ? 'blue-text' : ''}`}
+            onClick={() => setIsPreviewOpen(p => !p)}
+            title="開啟或關閉右側免跳頁個股 K 線快覽面板"
+            id="btn-toggle-preview-drawer"
+          >
+            {isPreviewOpen ? '◫ 隱藏快覽' : '◫ 開啟K線快覽'}
+          </button>
           <button
             className="btn-toolbar-action blue-text"
             onClick={onOpenFormulaModal}
@@ -535,7 +853,49 @@ export default function StockScreener({
         </div>
       </div>
 
-      {/* 展開式策略抽屜（籌碼面 / 技術面 / 即時面 / 基本面 / 自訂數值篩選 / 策略庫） */}
+      {/* 方案 C 招牌功能：多空動能轉折快篩矩陣 (主力 / 投信 / 外資 × 第1天買 / 5天偏買 / 10天偏買 / 近期偏買 / 偏賣) */}
+      <div className="momentum-matrix-bar" id="momentum-matrix-bar">
+        <div className="mm-target-group">
+          <span className="mm-group-label">🎯 鎖定對象：</span>
+          {[
+            { id: 'main', label: '主力買賣' },
+            { id: 'trust', label: '投信法人' },
+            { id: 'foreign', label: '外資法人' },
+            { id: 'dual', label: '🔥 主力+投信同買' }
+          ].map(t => (
+            <button
+              key={t.id}
+              className={`mm-target-btn ${momentumTarget === t.id ? 'active' : ''}`}
+              onClick={() => setMomentumTarget(t.id)}
+              id={`btn-mm-target-${t.id}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mm-stage-group">
+          <span className="mm-group-label">⚡ 動能轉折階段：</span>
+          {MOMENTUM_STAGES.map(st => {
+            const isSelected = momentumStage === st.id;
+            const isBear = st.id === 'DAY1_SELL' || st.id === 'SELL_BEAR';
+            return (
+              <button
+                key={st.id}
+                className={`mm-stage-pill ${isSelected ? 'active' : ''} ${isBear ? 'bear-pill' : ''}`}
+                onClick={() => setMomentumStage(st.id)}
+                title={st.desc}
+                id={`btn-mm-stage-${st.id}`}
+              >
+                <span>{st.label}</span>
+                <span className="mm-count-badge">{stageCounts[st.id] ?? 0}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 展開式策略抽屜 */}
       {activeCategoryDrawer && (
         <div className="strategy-drawer" id="strategy-drawer-panel">
           {activeCategoryDrawer === 'saved' ? (
@@ -563,7 +923,7 @@ export default function StockScreener({
                 <input
                   type="text"
                   className="save-strategy-input"
-                  placeholder="輸入新策略名稱（儲存目前勾選與數值門檻）..."
+                  placeholder="輸入新策略名稱（儲存目前動能篩選與數值門檻）..."
                   value={newStrategyName}
                   onChange={e => setNewStrategyName(e.target.value)}
                 />
@@ -575,7 +935,7 @@ export default function StockScreener({
           ) : activeCategoryDrawer !== 'custom' ? (
             <div className="strategy-pills-wrap">
               <span className="drawer-label">
-                點擊啟用選股條件（可複選組合）：
+                點擊啟用進階選股條件（可與上方動能階段疊加組合）：
               </span>
               {PRESET_STRATEGIES[activeCategoryDrawer]?.map(st => {
                 const isSelected = activeStrategyIds.includes(st.id);
@@ -664,308 +1024,338 @@ export default function StockScreener({
       {/* 操作提示橫條 */}
       <div className="screener-subhint">
         <span>
-          💡 點擊任一列「<strong>代號</strong>」或「<strong>名稱</strong>」即可進入<strong>個股籌碼 K 線與券商分點明細（圖 2 工作站）</strong>；點擊欄位表頭可排序。
+          💡 <strong>單擊任一列</strong>可於右側快覽 K 線與前 5 大買賣分點；<strong>點擊「詳情K線」按鈕或雙擊列</strong>可進入「<strong>2. 個股K線</strong>」全螢幕工作站。搜尋過的股票皆會自動快取於本機秒開！
         </span>
         <span className="subhint-right">
           符合條件共 <strong>{filteredStocks.length}</strong> 檔個股
         </span>
       </div>
 
-      {/* 高密度看盤選股表格（完全對齊圖 1 視覺與欄位） */}
-      <div className="screener-table-wrapper">
-        <table className="screener-table" id="screener-data-table">
-          <thead>
-            <tr>
-              <th className="sticky-col col-pin" title="置頂自選股">置<br />頂</th>
-              <th className="sticky-col col-code sortable" onClick={() => handleSort('code')}>
-                代號 {sortConfig.key === 'code' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
-              <th className="sticky-col col-name sortable" onClick={() => handleSort('name')}>
-                名稱
-              </th>
-              <th className="col-kbar">K<br />棒</th>
-              <th className="sortable" onClick={() => handleSort('price')}>
-                成交價 {sortConfig.key === 'price' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
-              <th className="sortable" onClick={() => handleSort('changePct')}>
-                漲跌<br />幅(%) {sortConfig.key === 'changePct' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
+      {/* 方案 C 雙模主體：左側高密度動能選股表 + 右側可收合免跳頁個股 K 線快覽抽屜 */}
+      <div className={`screener-split-workspace ${isPreviewOpen ? 'with-preview' : ''}`}>
+        <div className="screener-table-wrapper">
+          <table className="screener-table" id="screener-data-table">
+            <thead>
+              <tr>
+                <th className="sticky-col col-pin" title="置頂自選股">置<br />頂</th>
+                <th className="sticky-col col-code sortable" onClick={() => handleSort('code')}>
+                  代號 {sortConfig.key === 'code' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th className="sticky-col col-name sortable" onClick={() => handleSort('name')}>
+                  名稱
+                </th>
+                <th className="col-kbar">K<br />棒</th>
+                <th className="sortable" onClick={() => handleSort('price')}>
+                  成交價 {sortConfig.key === 'price' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th className="sortable" onClick={() => handleSort('changePct')}>
+                  漲跌<br />幅(%) {sortConfig.key === 'changePct' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
 
-              {showFig1Cols && (
-                <>
-                  <th className="sortable" onClick={() => handleSort('inCount')} title="連續內盤成交次數">連內次</th>
-                  <th className="sortable" onClick={() => handleSort('inVol')} title="連續內盤成交量(張)">連內量</th>
-                  <th className="sortable" onClick={() => handleSort('outCount')} title="連續外盤成交次數">連外次</th>
-                  <th className="sortable" onClick={() => handleSort('outVol')} title="連續外盤成交量(張)">連外量</th>
-                </>
-              )}
+                {/* 方案 C 新增：動能狀態標籤 & 近 10 日買賣超紅綠熱力格 */}
+                <th title="目前鎖定對象之多空轉折階段">
+                  {momentumTarget === 'trust'
+                    ? '投信動能狀態'
+                    : momentumTarget === 'foreign'
+                      ? '外資動能狀態'
+                      : '主力動能狀態'}
+                </th>
+                <th title="近 10 個交易日逐日買賣超紅綠軌跡 (最右側為今日)">
+                  近10日買賣軌跡
+                </th>
 
-              <th className="sortable" onClick={() => handleSort('volume')}>
-                成交量 {sortConfig.key === 'volume' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
+                <th className="sortable" onClick={() => handleSort('volume')}>
+                  成交量 {sortConfig.key === 'volume' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
 
-              {showFig1Cols && (
-                <th className="sortable" onClick={() => handleSort('warrantAmt')}>權證金額</th>
-              )}
+                <th className="col-industry sortable" onClick={() => handleSort('industry')}>細產業分類</th>
 
-              <th className="col-industry sortable" onClick={() => handleSort('industry')}>細產業分類</th>
+                <th className="sortable" onClick={() => handleSort('mainConsec')} title="主力連續買賣超天數">主力<br />連買</th>
+                <th className="sortable" onClick={() => handleSort('foreignConsec')} title="外資連續買賣超天數">外資<br />連買</th>
+                <th className="sortable" onClick={() => handleSort('trustConsec')} title="投信連續買賣超天數">投信<br />連買</th>
 
-              {showFig1Cols && (
-                <>
-                  <th className="sortable" onClick={() => handleSort('monthSlope')}>月線<br />斜率</th>
-                  <th className="sortable" onClick={() => handleSort('lastWeekSlope')}>上週<br />斜率</th>
-                  <th className="sortable" onClick={() => handleSort('nextWeekSlope')}>下週<br />斜率</th>
-                  <th className="sortable" onClick={() => handleSort('bandWidth')} title="布林通道帶寬(%)">帶寬</th>
-                  <th className="sortable" onClick={() => handleSort('bandPos')} title="布林通道相對位階">位階</th>
-                </>
-              )}
-
-              <th className="sortable" onClick={() => handleSort('mainConsec')} title="主力連續買賣超天數">主力<br />連買</th>
-              <th className="sortable" onClick={() => handleSort('foreignConsec')} title="外資連續買賣超天數">外資<br />連買</th>
-              <th className="sortable" onClick={() => handleSort('trustConsec')} title="投信連續買賣超天數">投信<br />連買</th>
-
-              <th
-                className="sortable"
-                onClick={() => handleSort('main1')}
-                title="主1：(今日買超總量 - 今日賣超賣量) / 當天成交量 * 100"
-              >
-                主1 {sortConfig.key === 'main1' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
-              <th
-                className="sortable"
-                onClick={() => handleSort('main5')}
-                title="主5：(五日區間買超總量 - 五日區間賣超賣量) / 五日成交量 * 100"
-              >
-                主5 {sortConfig.key === 'main5' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
-              <th
-                className="sortable"
-                onClick={() => handleSort('main10')}
-                title="主10：(十日區間買超總量 - 十日區間賣超賣量) / 十日成交量 * 100"
-              >
-                主10 {sortConfig.key === 'main10' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-              </th>
-
-              <th className="sortable" onClick={() => handleSort('foreignPct')}>外資%</th>
-              <th className="sortable" onClick={() => handleSort('trustPct')}>投信%</th>
-              <th className="sortable" onClick={() => handleSort('dealerPct')}>自營%</th>
-              <th className="sortable" onClick={() => handleSort('dayTradePct')}>當沖%</th>
-              <th className="sortable" onClick={() => handleSort('marginPct')}>融資%</th>
-              <th className="sortable" onClick={() => handleSort('shortPct')}>融券%</th>
-              <th className="sortable" onClick={() => handleSort('shortMarginRatio')}>券資<br />比%</th>
-              <th
-                className="sortable"
-                onClick={() => handleSort('biasYear')}
-                title="乖年【乖離年線】：舉例年線100，股價90，乖年=-10"
-              >
-                乖離年<br />線%
-              </th>
-
-              {showFig3Cols && (
-                <>
-                  <th className="sortable" onClick={() => handleSort('biasQuarter')} title="乖季【乖離季線】">乖季%</th>
-                  <th className="sortable" onClick={() => handleSort('biasMonth')} title="乖月【乖離月線】">乖月%</th>
-                  <th className="sortable" onClick={() => handleSort('fromHigh')} title="離高：離一年來高點打幾折">離高<br />(折)</th>
-                  <th className="sortable" onClick={() => handleSort('fromLow')} title="離低：離一年來最低點是幾倍">離低<br />(倍)</th>
-                  <th className="sortable" onClick={() => handleSort('maintRatio')} title="維持率：低於130，融資率過高者容易多殺多">維持<br />率%</th>
-                  <th className="sortable" onClick={() => handleSort('revYoY')} title="YOY：年營收成長(%)">營收<br />YOY%</th>
-                  <th className="sortable" onClick={() => handleSort('revMoM')} title="MOM：月營收成長(%)">營收<br />MOM%</th>
-                  <th className="sortable" onClick={() => handleSort('pb')} title="股淨比：低於0.5，公司派大買，容易是低點!">股淨比</th>
-                  <th className="sortable" onClick={() => handleSort('dividendYield')} title="殖利率：(現金股利+股票股利)*100/股價">殖利<br />率%</th>
-                  <th className="sortable" onClick={() => handleSort('divYears')} title="連續年：連續配發現金股利年數">連續<br />年</th>
-                </>
-              )}
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredStocks.map(stock => {
-              const isPinned = pinnedCodes.includes(stock.code);
-              const priceColor = getSignedColorClass(stock.changePct);
-
-              return (
-                <tr
-                  key={stock.code}
-                  className={`screener-row ${isPinned ? 'row-pinned' : ''}`}
-                  onClick={() => onSelectStock(stock.code)}
-                  id={`row-stock-${stock.code}`}
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('main1')}
+                  title="主1：(今日買超前15名總量 - 今日賣超前15名總量) / 當天成交量 * 100"
                 >
-                  <td
-                    className="sticky-col col-pin"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onTogglePin(stock.code);
+                  主1 {sortConfig.key === 'main1' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('main5')}
+                  title="主5：(五日區間買超總量 - 五日區間賣超總量) / 五日成交量 * 100"
+                >
+                  主5 {sortConfig.key === 'main5' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('main10')}
+                  title="主10：(十日區間買超總量 - 十日區間賣超總量) / 十日成交量 * 100"
+                >
+                  主10 {sortConfig.key === 'main10' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+
+                <th className="sortable" onClick={() => handleSort('foreignPct')}>外資%</th>
+                <th className="sortable" onClick={() => handleSort('trustPct')}>投信%</th>
+                <th className="sortable" onClick={() => handleSort('dealerPct')}>自營%</th>
+                <th className="sortable" onClick={() => handleSort('dayTradePct')}>當沖%</th>
+                <th className="sortable" onClick={() => handleSort('marginPct')}>融資%</th>
+                <th className="sortable" onClick={() => handleSort('shortPct')}>融券%</th>
+                <th className="sortable" onClick={() => handleSort('shortMarginRatio')}>券資<br />比%</th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('biasYear')}
+                  title="乖年【乖離年線】：舉例年線100，股價90，乖年=-10"
+                >
+                  乖離年<br />線%
+                </th>
+
+                {showFig1Cols && (
+                  <>
+                    <th className="sortable" onClick={() => handleSort('monthSlope')}>月線<br />斜率</th>
+                    <th className="sortable" onClick={() => handleSort('bandWidth')} title="布林通道帶寬(%)">帶寬</th>
+                    <th className="sortable" onClick={() => handleSort('bandPos')} title="布林通道相對位階">位階</th>
+                  </>
+                )}
+
+                {showFig3Cols && (
+                  <>
+                    <th className="sortable" onClick={() => handleSort('biasQuarter')} title="乖季【乖離季線】">乖季%</th>
+                    <th className="sortable" onClick={() => handleSort('biasMonth')} title="乖月【乖離月線】">乖月%</th>
+                    <th className="sortable" onClick={() => handleSort('fromHigh')} title="離高：離一年來高點打幾折">離高<br />(折)</th>
+                    <th className="sortable" onClick={() => handleSort('fromLow')} title="離低：離一年來最低點是幾倍">離低<br />(倍)</th>
+                    <th className="sortable" onClick={() => handleSort('maintRatio')} title="維持率：低於130，融資率過高者容易多殺多">維持<br />率%</th>
+                    <th className="sortable" onClick={() => handleSort('revYoY')} title="YOY：年營收成長(%)">營收<br />YOY%</th>
+                    <th className="sortable" onClick={() => handleSort('revMoM')} title="MOM：月營收成長(%)">營收<br />MOM%</th>
+                    <th className="sortable" onClick={() => handleSort('pb')} title="股淨比：低於0.5，公司派大買，容易是低點!">股淨比</th>
+                    <th className="sortable" onClick={() => handleSort('dividendYield')} title="殖利率：(現金股利+股票股利)*100/股價">殖利<br />率%</th>
+                    <th className="sortable" onClick={() => handleSort('divYears')} title="連續年：連續配發現金股利年數">連續<br />年</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+
+            <tbody>
+              {filteredStocks.map(stock => {
+                const isPinned = pinnedCodes.includes(stock.code);
+                const isPreviewSelected = previewStock?.code === stock.code;
+                const priceColor = getSignedColorClass(stock.changePct);
+                const mom = stock.momentum || computeStockMomentum(stock.kline || []);
+                const activeMomObj =
+                  momentumTarget === 'trust'
+                    ? mom.trust
+                    : momentumTarget === 'foreign'
+                      ? mom.foreign
+                      : mom.main;
+
+                const stageBadgeClass = activeMomObj?.isDay1Buy
+                  ? 'stage-day1-buy'
+                  : activeMomObj?.is5DBuy || activeMomObj?.is10DBuy || activeMomObj?.is20DBuy
+                    ? 'stage-bull'
+                    : activeMomObj?.isDay1Sell
+                      ? 'stage-day1-sell'
+                      : 'stage-bear';
+
+                return (
+                  <tr
+                    key={stock.code}
+                    className={`screener-row ${isPinned ? 'row-pinned' : ''} ${
+                      isPreviewSelected ? 'row-preview-active' : ''
+                    }`}
+                    onClick={() => {
+                      setPreviewCode(stock.code);
+                      if (!isPreviewOpen) {
+                        onSelectStock(stock.code);
+                      }
                     }}
+                    onDoubleClick={() => onSelectStock(stock.code)}
+                    id={`row-stock-${stock.code}`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isPinned}
-                      onChange={() => {}}
-                      className="pin-checkbox"
-                      aria-label={`置頂 ${stock.name}`}
-                    />
-                  </td>
-                  <td className="sticky-col col-code">{stock.code}</td>
-                  <td className="sticky-col col-name">{stock.name}</td>
-                  <td className="col-kbar">
-                    <MiniCandle type={stock.candleType} />
-                  </td>
-                  <td className={`num-cell ${priceColor}`}>{stock.price}</td>
-                  <td className={`num-cell ${priceColor}`}>{stock.changePct}</td>
+                    <td
+                      className="sticky-col col-pin"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onTogglePin(stock.code);
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isPinned}
+                        onChange={() => {}}
+                        className="pin-checkbox"
+                        aria-label={`置頂 ${stock.name}`}
+                      />
+                    </td>
+                    <td
+                      className="sticky-col col-code"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onSelectStock(stock.code);
+                      }}
+                      title="點擊直接進入個股K線完整工作站"
+                    >
+                      {stock.code}
+                    </td>
+                    <td
+                      className="sticky-col col-name"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onSelectStock(stock.code);
+                      }}
+                      title="點擊直接進入個股K線完整工作站"
+                    >
+                      <span>{stock.name}</span>
+                      {stock.isUserCached && (
+                        <span className="cached-dot" title="已快取於本機瀏覽器">⚡</span>
+                      )}
+                    </td>
+                    <td className="col-kbar">
+                      <MiniCandle type={stock.candleType} />
+                    </td>
+                    <td className={`num-cell ${priceColor}`}>{stock.price}</td>
+                    <td className={`num-cell ${priceColor}`}>{stock.changePct}</td>
 
-                  {showFig1Cols && (
-                    <>
-                      <td className={`num-cell ${stock.inCount > 0 ? 'cell-green' : 'cell-zero'}`}>
-                        {stock.inCount}
-                      </td>
-                      <td
-                        className={`num-cell ${
-                          stock.inVol >= 14 ? 'bg-highlight-green' : stock.inVol > 0 ? 'cell-green' : 'cell-zero'
-                        }`}
-                      >
-                        {stock.inVol}
-                      </td>
-                      <td className={`num-cell ${stock.outCount > 0 ? 'cell-red' : 'cell-zero'}`}>
-                        {stock.outCount}
-                      </td>
-                      <td
-                        className={`num-cell ${
-                          stock.outVol >= 30 ? 'bg-highlight-red' : stock.outVol > 0 ? 'cell-red' : 'cell-zero'
-                        }`}
-                      >
-                        {stock.outVol}
-                      </td>
-                    </>
-                  )}
+                    {/* 動能轉折狀態標籤 */}
+                    <td className="col-mom-stage">
+                      <span className={`mom-stage-badge ${stageBadgeClass}`}>
+                        {activeMomObj?.stageLabel || '盤整'}
+                      </span>
+                    </td>
 
-                  <td className="num-cell cell-neutral">{stock.volume.toLocaleString()}</td>
+                    {/* 近10日買賣紅綠熱力格 */}
+                    <td className="col-sparkbar">
+                      <Recent10Sparkbar values={activeMomObj?.recent10 || []} />
+                    </td>
 
-                  {showFig1Cols && (
-                    <td className="num-cell cell-muted">{stock.warrantAmt}</td>
-                  )}
+                    <td className="num-cell cell-neutral">{stock.volume.toLocaleString()}</td>
 
-                  <td className="col-industry">{stock.industry}</td>
+                    <td className="col-industry">{stock.industry}</td>
 
-                  {showFig1Cols && (
-                    <>
-                      <td className={`num-cell ${getSignedColorClass(stock.monthSlope)}`}>
-                        {stock.monthSlope}
-                      </td>
-                      <td className={`num-cell ${getSignedColorClass(stock.lastWeekSlope)}`}>
-                        {stock.lastWeekSlope}
-                      </td>
-                      <td className={`num-cell ${getSignedColorClass(stock.nextWeekSlope)}`}>
-                        {stock.nextWeekSlope}
-                      </td>
-                      <td
-                        className={`num-cell ${
-                          stock.bandWidth >= 20
-                            ? 'bg-highlight-red'
-                            : stock.bandWidth <= 10
-                              ? 'cell-green'
-                              : 'cell-red'
-                        }`}
-                      >
-                        {stock.bandWidth}
-                      </td>
-                      <td
-                        className={`num-cell ${
-                          stock.bandPos >= 10
-                            ? 'bg-highlight-red'
-                            : stock.bandPos < 0
-                              ? 'cell-green'
-                              : 'cell-red'
-                        }`}
-                      >
-                        {stock.bandPos}
-                      </td>
-                    </>
-                  )}
+                    <td className={`num-cell ${getSignedColorClass(stock.mainConsec)}`}>
+                      {stock.mainConsec}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.foreignConsec)}`}>
+                      {stock.foreignConsec}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.trustConsec)}`}>
+                      {stock.trustConsec}
+                    </td>
 
-                  <td className={`num-cell ${getSignedColorClass(stock.mainConsec)}`}>
-                    {stock.mainConsec}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.foreignConsec)}`}>
-                    {stock.foreignConsec}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.trustConsec)}`}>
-                    {stock.trustConsec}
-                  </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.main1)}`}>
+                      {stock.main1}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.main5)}`}>
+                      {stock.main5}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.main10)}`}>
+                      {stock.main10}
+                    </td>
 
-                  <td className={`num-cell ${getSignedColorClass(stock.main1)}`}>
-                    {stock.main1}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.main5)}`}>
-                    {stock.main5}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.main10)}`}>
-                    {stock.main10}
-                  </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.foreignPct)}`}>
+                      {stock.foreignPct}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.trustPct)}`}>
+                      {stock.trustPct}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.dealerPct)}`}>
+                      {stock.dealerPct}
+                    </td>
+                    <td className={`num-cell ${stock.dayTradePct > 0 ? 'cell-red' : 'cell-zero'}`}>
+                      {stock.dayTradePct}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.marginPct)}`}>
+                      {stock.marginPct}
+                    </td>
+                    <td className={`num-cell ${getSignedColorClass(stock.shortPct)}`}>
+                      {stock.shortPct}
+                    </td>
+                    <td className="num-cell cell-neutral">{stock.shortMarginRatio}</td>
+                    <td className={`num-cell ${getSignedColorClass(stock.biasYear)}`}>
+                      {stock.biasYear}
+                    </td>
 
-                  <td className={`num-cell ${getSignedColorClass(stock.foreignPct)}`}>
-                    {stock.foreignPct}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.trustPct)}`}>
-                    {stock.trustPct}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.dealerPct)}`}>
-                    {stock.dealerPct}
-                  </td>
-                  <td className={`num-cell ${stock.dayTradePct > 0 ? 'cell-red' : 'cell-zero'}`}>
-                    {stock.dayTradePct}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.marginPct)}`}>
-                    {stock.marginPct}
-                  </td>
-                  <td className={`num-cell ${getSignedColorClass(stock.shortPct)}`}>
-                    {stock.shortPct}
-                  </td>
-                  <td className="num-cell cell-neutral">{stock.shortMarginRatio}</td>
-                  <td className={`num-cell ${getSignedColorClass(stock.biasYear)}`}>
-                    {stock.biasYear}
-                  </td>
+                    {showFig1Cols && (
+                      <>
+                        <td className={`num-cell ${getSignedColorClass(stock.monthSlope)}`}>
+                          {stock.monthSlope}
+                        </td>
+                        <td
+                          className={`num-cell ${
+                            stock.bandWidth >= 20
+                              ? 'bg-highlight-red'
+                              : stock.bandWidth <= 10
+                                ? 'cell-green'
+                                : 'cell-red'
+                          }`}
+                        >
+                          {stock.bandWidth}
+                        </td>
+                        <td
+                          className={`num-cell ${
+                            stock.bandPos >= 10
+                              ? 'bg-highlight-red'
+                              : stock.bandPos < 0
+                                ? 'cell-green'
+                                : 'cell-red'
+                          }`}
+                        >
+                          {stock.bandPos}
+                        </td>
+                      </>
+                    )}
 
-                  {showFig3Cols && (
-                    <>
-                      <td className={`num-cell ${getSignedColorClass(stock.biasQuarter)}`}>
-                        {stock.biasQuarter}
-                      </td>
-                      <td className={`num-cell ${getSignedColorClass(stock.biasMonth)}`}>
-                        {stock.biasMonth}
-                      </td>
-                      <td className="num-cell cell-neutral">{stock.fromHigh}</td>
-                      <td className="num-cell cell-red">{stock.fromLow}</td>
-                      <td
-                        className={`num-cell ${
-                          stock.maintRatio < 130 ? 'bg-highlight-green' : 'cell-neutral'
-                        }`}
-                        title={stock.maintRatio < 130 ? '維持率低於130%，留意融資多殺多風險！' : ''}
-                      >
-                        {stock.maintRatio}
-                      </td>
-                      <td className={`num-cell ${getSignedColorClass(stock.revYoY)}`}>
-                        {stock.revYoY}
-                      </td>
-                      <td className={`num-cell ${getSignedColorClass(stock.revMoM)}`}>
-                        {stock.revMoM}
-                      </td>
-                      <td
-                        className={`num-cell ${
-                          stock.pb < 0.5 ? 'bg-highlight-red' : 'cell-neutral'
-                        }`}
-                        title={stock.pb < 0.5 ? '股淨比低於0.5且主力買超，容易是長線低點！' : ''}
-                      >
-                        {stock.pb}
-                      </td>
-                      <td className="num-cell cell-red">{stock.dividendYield}</td>
-                      <td className="num-cell cell-neutral">{stock.divYears}</td>
-                    </>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    {showFig3Cols && (
+                      <>
+                        <td className={`num-cell ${getSignedColorClass(stock.biasQuarter)}`}>
+                          {stock.biasQuarter}
+                        </td>
+                        <td className={`num-cell ${getSignedColorClass(stock.biasMonth)}`}>
+                          {stock.biasMonth}
+                        </td>
+                        <td className="num-cell cell-neutral">{stock.fromHigh}</td>
+                        <td className="num-cell cell-red">{stock.fromLow}</td>
+                        <td
+                          className={`num-cell ${
+                            stock.maintRatio < 130 ? 'bg-highlight-green' : 'cell-neutral'
+                          }`}
+                          title={stock.maintRatio < 130 ? '維持率低於130%，留意融資多殺多風險！' : ''}
+                        >
+                          {stock.maintRatio}
+                        </td>
+                        <td className={`num-cell ${getSignedColorClass(stock.revYoY)}`}>
+                          {stock.revYoY}
+                        </td>
+                        <td className={`num-cell ${getSignedColorClass(stock.revMoM)}`}>
+                          {stock.revMoM}
+                        </td>
+                        <td
+                          className={`num-cell ${
+                            stock.pb < 0.5 ? 'bg-highlight-red' : 'cell-neutral'
+                          }`}
+                          title={stock.pb < 0.5 ? '股淨比低於0.5且主力買超，容易是長線低點！' : ''}
+                        >
+                          {stock.pb}
+                        </td>
+                        <td className="num-cell cell-red">{stock.dividendYield}</td>
+                        <td className="num-cell cell-neutral">{stock.divYears}</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 右側免跳頁個股 K 線與分點拔河快覽抽屜 */}
+        {isPreviewOpen && previewStock && (
+          <QuickStockPreviewDrawer
+            stock={previewStock}
+            onClose={() => setIsPreviewOpen(false)}
+            onExpandFullDetail={code => onSelectStock(code)}
+          />
+        )}
       </div>
     </section>
   );
