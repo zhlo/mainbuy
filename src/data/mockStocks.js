@@ -78,16 +78,59 @@ export const FORMULA_DEFINITIONS = [
     title: '主 10（十日區間主力集中度）',
     formula: '((十日區間買超的總量) - (十日區間賣超的賣量)) / (十日成交量) × 100',
     description: '衡量兩週雙週期的主力沉澱度。當 主1、主5、主10 同為紅字且遞增，代表主力波段鎖碼。'
+  },
+  {
+    key: 'brokerProfit',
+    title: '分點區間損益(萬)【當沖已實現 + 留倉未實現損益】',
+    formula: '[ 沖銷張數 × (賣均價 - 買均價) + 買賣超留倉張數 × (區間收盤價 - 買/賣均價) ] × 0.1 萬',
+    description: '精確區分「當沖沖銷張數 min(買張, 賣張)」之已實現價差損益，以及「淨買賣超留倉張數 (買張 - 賣張)」以區間收盤價結算之未實現損益（1張=1000股，每1元價差=0.1萬元）。'
   }
 ];
 
+// 精確計算分點區間損益(萬)：區分「當沖/區間沖銷已實現損益」與「留倉部位以收盤價結算之未實現損益」
+export function computeBrokerProfitMetrics(buy, sell, avgBuy, avgSell, closePrice) {
+  const b = Math.max(0, Number(buy) || 0);
+  const s = Math.max(0, Number(sell) || 0);
+  const net = b - s;
+  const close = Number(closePrice) || Number(avgBuy) || Number(avgSell) || 100;
+  const effBuy = b > 0 && Number(avgBuy) > 0 ? Number(avgBuy) : close;
+  const effSell = s > 0 && Number(avgSell) > 0 ? Number(avgSell) : close;
+
+  // 1. 當沖/區間沖銷張數：min(買張, 賣張) × (賣均價 - 買均價) × 0.1 萬
+  const matchedLots = Math.min(b, s);
+  const realizedWan = Number((matchedLots * (effSell - effBuy) * 0.1).toFixed(1));
+
+  // 2. 留倉/淨調節部位：淨買超以 (區間收盤價 - 買均價) 計算；淨賣超以 (賣均價 - 區間收盤價) 計算
+  const unrealizedWan = Number(
+    (
+      (net >= 0 ? net * (close - effBuy) : Math.abs(net) * (effSell - close)) * 0.1
+    ).toFixed(1)
+  );
+
+  // 3. 純買賣均價價差損益（不含收盤價留倉重估，供對照參考）
+  const spreadOnlyWan = Number((((effSell - effBuy) * matchedLots) * 0.1).toFixed(1));
+
+  const profitWan = Math.round(realizedWan + unrealizedWan);
+  return {
+    matchedLots,
+    realizedWan,
+    unrealizedWan,
+    spreadOnlyWan,
+    closePriceUsed: close,
+    profitWan
+  };
+}
+
 // 根據序列計算「第1天轉買、5天內偏買、10天內偏買、近期20天偏買、第1天轉賣、5天偏賣、10天偏賣」
+// 自動跳過尚未公布盤後籌碼之留空日 (null / undefined)
 export function analyzeSeriesMomentum(series = []) {
-  const len = series.length;
+  const validSeries = series.filter(v => v !== null && v !== undefined && Number.isFinite(v));
+  const len = validSeries.length;
   if (len === 0) {
     return {
       recent10: [],
       today: 0,
+      todayNet: 0,
       net5: 0,
       net10: 0,
       net20: 0,
@@ -104,18 +147,19 @@ export function analyzeSeriesMomentum(series = []) {
       is5DSell: false,
       is10DSell: false,
       tag: '盤整',
+      stageLabel: '盤整',
       tagType: 'neutral'
     };
   }
 
-  const recent10 = series.slice(-10);
-  const recent5 = series.slice(-5);
-  const recent20 = series.slice(-20);
+  const recent10 = validSeries.slice(-10);
+  const recent5 = validSeries.slice(-5);
+  const recent20 = validSeries.slice(-20);
 
-  const today = series[len - 1] || 0;
-  const prev1 = len >= 2 ? series[len - 2] : 0;
-  const prev2 = len >= 3 ? series[len - 3] : 0;
-  const prev3 = len >= 4 ? series[len - 4] : 0;
+  const today = validSeries[len - 1] || 0;
+  const prev1 = len >= 2 ? validSeries[len - 2] : 0;
+  const prev2 = len >= 3 ? validSeries[len - 3] : 0;
+  const prev3 = len >= 4 ? validSeries[len - 4] : 0;
 
   const net5 = recent5.reduce((s, v) => s + v, 0);
   const net10 = recent10.reduce((s, v) => s + v, 0);
@@ -196,9 +240,9 @@ export function analyzeSeriesMomentum(series = []) {
 }
 
 export function computeStockMomentum(kline = []) {
-  const mainMom = analyzeSeriesMomentum(kline.map(d => d.mainNet || 0));
-  const trustMom = analyzeSeriesMomentum(kline.map(d => d.trustNet || 0));
-  const foreignMom = analyzeSeriesMomentum(kline.map(d => d.foreignNet || 0));
+  const mainMom = analyzeSeriesMomentum(kline.map(d => d.mainNet));
+  const trustMom = analyzeSeriesMomentum(kline.map(d => d.trustNet));
+  const foreignMom = analyzeSeriesMomentum(kline.map(d => d.foreignNet));
   return {
     main: mainMom,
     trust: trustMom,
@@ -476,24 +520,50 @@ export function generateStockDataset() {
 }
 
 export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
-  const kline = stock.kline;
-  const safeEnd = Math.min(Math.max(0, endIdx), kline.length - 1);
+  const kline = stock.kline || [];
+  const safeEnd = Math.min(Math.max(0, endIdx), Math.max(0, kline.length - 1));
   const startIdx = Math.max(0, safeEnd - periodDays + 1);
   const periodSlice = kline.slice(startIdx, safeEnd + 1);
 
   const startDate = periodSlice[0]?.compactDate || '';
   const endDate = periodSlice[periodSlice.length - 1]?.compactDate || '';
-  const periodVol = periodSlice.reduce((s, d) => s + d.volume, 0);
+  const periodVol = periodSlice.reduce((s, d) => s + (d.volume || 0), 0);
+  const endClosePrice = periodSlice[periodSlice.length - 1]?.close || stock.price;
 
-  const isLatestEnd = safeEnd === kline.length - 1;
+  const isLatestEnd = safeEnd >= kline.length - 2;
   const realReport =
     isLatestEnd && stock.realBrokerReports
       ? stock.realBrokerReports[periodDays] || stock.realBrokerReports[1]
       : null;
 
   if (realReport && realReport.buyers?.length > 0) {
-    const topBuyers = realReport.buyers;
-    const topSellers = realReport.sellers;
+    // 找出該份分點報表對應之實際結束交易日收盤價與區間成交量（避免盤後未出分點時誤拿次一交易日收盤價與成交量）
+    let reportEndIdx = safeEnd;
+    if (realReport.dateRangeEnd) {
+      const matchedIdx = kline.findIndex(d => d.compactDate === realReport.dateRangeEnd);
+      if (matchedIdx !== -1) reportEndIdx = matchedIdx;
+    }
+    const reportStartIdx = Math.max(0, reportEndIdx - periodDays + 1);
+    const reportSlice = kline.slice(reportStartIdx, reportEndIdx + 1);
+    const reportPeriodVol = reportSlice.reduce((s, d) => s + (d.volume || 0), 0) || periodVol;
+    const reportClosePrice = kline[reportEndIdx]?.close || endClosePrice;
+
+    const enrichBroker = b => {
+      const metrics = computeBrokerProfitMetrics(
+        b.buy,
+        b.sell,
+        b.avgBuy,
+        b.avgSell,
+        reportClosePrice
+      );
+      return {
+        ...b,
+        ...metrics
+      };
+    };
+
+    const topBuyers = realReport.buyers.map(enrichBroker);
+    const topSellers = realReport.sellers.map(enrichBroker);
     const allReal = [...topBuyers, ...topSellers];
 
     const top15BuySum =
@@ -505,11 +575,12 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
 
     const chipNet = top15BuySum + top15SellSum;
     const chipConcentrationPct =
-      periodVol > 0 ? Number(((chipNet / periodVol) * 100).toFixed(2)) : 0;
+      reportPeriodVol > 0 ? Number(((chipNet / reportPeriodVol) * 100).toFixed(2)) : 0;
 
-    const start20 = Math.max(0, safeEnd - 19);
-    const vol20 = kline.slice(start20, safeEnd + 1).reduce((s, d) => s + d.volume, 0);
-    const main20 = kline.slice(start20, safeEnd + 1).reduce((s, d) => s + d.mainNet, 0);
+    const start20 = Math.max(0, reportEndIdx - 19);
+    const slice20 = kline.slice(start20, reportEndIdx + 1);
+    const vol20 = slice20.reduce((s, d) => s + (d.volume || 0), 0);
+    const main20 = slice20.reduce((s, d) => s + (d.mainNet || 0), 0);
     const chip20Pct =
       stock.realBrokerReports?.[20] && vol20 > 0
         ? Number(
@@ -525,7 +596,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
           : 0;
 
     const capitalRatioPct = Number(((chipNet / (stock.capitalShares || 300000)) * 100).toFixed(2));
-    const turnoverPct = Number(((periodVol / (stock.capitalShares || 300000)) * 100).toFixed(2));
+    const turnoverPct = Number(((reportPeriodVol / (stock.capitalShares || 300000)) * 100).toFixed(2));
 
     let directionLabel = '盤整';
     let isBullish = chipNet >= 0;
@@ -535,11 +606,12 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     else directionLabel = '小賣';
 
     return {
-      startDate: realReport.dateRangeStart || startDate,
-      endDate: realReport.dateRangeEnd || endDate,
-      startIdx,
-      endIdx: safeEnd,
-      periodVol,
+      startDate: realReport.dateRangeStart || reportSlice[0]?.compactDate || startDate,
+      endDate: realReport.dateRangeEnd || reportSlice[reportSlice.length - 1]?.compactDate || endDate,
+      startIdx: reportStartIdx,
+      endIdx: reportEndIdx,
+      reportClosePrice,
+      periodVol: reportPeriodVol,
       top15BuySum,
       top15SellSum,
       chipNet,
@@ -568,20 +640,20 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     let sell = 0;
     let buyCost = 0;
     let sellRev = 0;
-    let profitWan = 0;
 
     series.forEach(item => {
+      if (!item || item.buy === null || item.buy === undefined) return;
       buy += item.buy;
       sell += item.sell;
-      buyCost += item.buy * (item.avgBuy || periodSlice[periodSlice.length - 1]?.close || stock.price);
-      sellRev += item.sell * (item.avgSell || periodSlice[periodSlice.length - 1]?.close || stock.price);
-      profitWan += item.profitWan;
+      buyCost += item.buy * (item.avgBuy || endClosePrice);
+      sellRev += item.sell * (item.avgSell || endClosePrice);
     });
 
     const net = buy - sell;
     const vol = buy + sell;
     const avgBuy = buy > 0 ? Number((buyCost / buy).toFixed(2)) : 0;
     const avgSell = sell > 0 ? Number((sellRev / sell).toFixed(2)) : 0;
+    const metrics = computeBrokerProfitMetrics(buy, sell, avgBuy, avgSell, endClosePrice);
 
     return {
       ...broker,
@@ -591,7 +663,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
       vol,
       avgBuy,
       avgSell,
-      profitWan
+      ...metrics
     };
   });
 
@@ -607,12 +679,12 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     periodVol > 0 ? Number(((chipNet / periodVol) * 100).toFixed(2)) : 0;
 
   const start20 = Math.max(0, safeEnd - 19);
-  const vol20 = kline.slice(start20, safeEnd + 1).reduce((s, d) => s + d.volume, 0);
-  const main20 = kline.slice(start20, safeEnd + 1).reduce((s, d) => s + d.mainNet, 0);
+  const vol20 = kline.slice(start20, safeEnd + 1).reduce((s, d) => s + (d.volume || 0), 0);
+  const main20 = kline.slice(start20, safeEnd + 1).reduce((s, d) => s + (d.mainNet || 0), 0);
   const chip20Pct = vol20 > 0 ? Number(((main20 / vol20) * 100).toFixed(2)) : 0;
 
-  const capitalRatioPct = Number(((chipNet / stock.capitalShares) * 100).toFixed(2));
-  const turnoverPct = Number(((periodVol / stock.capitalShares) * 100).toFixed(2));
+  const capitalRatioPct = Number(((chipNet / (stock.capitalShares || 300000)) * 100).toFixed(2));
+  const turnoverPct = Number(((periodVol / (stock.capitalShares || 300000)) * 100).toFixed(2));
 
   let directionLabel = '盤整';
   let isBullish = chipNet >= 0;
@@ -626,6 +698,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     endDate,
     startIdx,
     endIdx: safeEnd,
+    reportClosePrice: endClosePrice,
     periodVol,
     top15BuySum,
     top15SellSum,
@@ -646,3 +719,179 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     allBrokers: brokerStats
   };
 }
+
+// 預設台股加權指數 (TAIEX) 4萬點級別完整 K 線與大盤籌碼資料集（當雲端與 FinMind 載入後會自動覆寫為最新 100% 正式數據）
+export function generateTaiexDataset(stocks = []) {
+  const sampleKline = stocks[0]?.kline || [];
+  const totalDays = sampleKline.length || 75;
+  const targetPrice = 41661.7;
+  const targetChange = 1960.06;
+  const targetChangePct = 4.94;
+
+  let rawIdx = [38500];
+  for (let i = 1; i < totalDays; i++) {
+    const r = seededRandom(9999 + i * 43) - 0.485;
+    rawIdx.push(rawIdx[i - 1] * (1 + r * 0.018));
+  }
+  const scale = targetPrice / rawIdx[totalDays - 1];
+
+  let cumMainNet = 1200; // 單位：億元
+  let foreignHold = 8500;
+  let trustHold = 3200;
+  let cumDealer = -420;
+  let cumRetailNet = -850;
+  let marginBal = 5341; // 大盤融資餘額(億元)
+  let shortBal = 243; // 大盤融券餘額(仟張)
+  let kVal = 50;
+  let dVal = 50;
+
+  const kline = [];
+  for (let i = 0; i < totalDays; i++) {
+    const isLast = i === totalDays - 1;
+    const refDay = sampleKline[i];
+    const close = isLast ? targetPrice : Number((rawIdx[i] * scale).toFixed(2));
+    const prevClose = i === 0 ? Number((close * 0.992).toFixed(2)) : kline[i - 1].close;
+    const change = isLast ? targetChange : Number((close - prevClose).toFixed(2));
+    const changePct = isLast ? targetChangePct : Number(((change / prevClose) * 100).toFixed(2));
+    const open = isLast ? 40347.28 : Number((prevClose + change * 0.35).toFixed(2));
+    const high = isLast ? 42349.36 : Number((Math.max(open, close) + Math.abs(change) * 0.45 + 85).toFixed(2));
+    const low = isLast ? 40347.28 : Number((Math.min(open, close) - Math.abs(change) * 0.35 - 75).toFixed(2));
+    const volume = isLast ? 8639 : Math.round(6800 + seededRandom(777 + i * 19) * 3800); // 大盤成交金額(億元)
+
+    const foreignNet = Math.round((change >= 0 ? 1 : -1) * (120 + seededRandom(101 + i) * 380));
+    const trustNet = Math.round(35 + (seededRandom(202 + i) - 0.25) * 140);
+    const dealerNet = Math.round((change >= 0 ? 1 : -1) * (25 + seededRandom(303 + i) * 90));
+    const mainNet = foreignNet + trustNet + dealerNet; // 三大法人合計買賣超(億元)
+    const marginDiff = isLast ? null : Math.round((change >= 0 ? 1 : -1) * (15 + seededRandom(404 + i) * 110));
+    const shortDiff = isLast ? null : Math.round((seededRandom(505 + i) - 0.48) * 18);
+    // 散戶多空動能指標(億元)：散戶融資變化與法人對作力道
+    const retailNet = Math.round(-mainNet * 0.55 + (marginDiff || 0));
+
+    cumMainNet += mainNet;
+    foreignHold += foreignNet;
+    trustHold += trustNet;
+    cumDealer += dealerNet;
+    cumRetailNet += retailNet;
+    if (marginDiff !== null) marginBal += marginDiff;
+    if (shortDiff !== null) shortBal = Math.max(50, shortBal + shortDiff);
+
+    kline.push({
+      index: i,
+      date: refDay?.date || `2026/11/${String((i % 28) + 1).padStart(2, '0')}`,
+      compactDate: refDay?.compactDate || `202611${String((i % 28) + 1).padStart(2, '0')}`,
+      shortDate: refDay?.shortDate || `11/${String((i % 28) + 1).padStart(2, '0')}`,
+      open,
+      high,
+      low,
+      close,
+      change,
+      changePct,
+      volume,
+      mainNet,
+      cumMainNet,
+      foreignNet,
+      foreignHold,
+      foreignHoldPct: 41.8,
+      trustNet,
+      trustHold,
+      trustHoldPct: 12.6,
+      dealerNet,
+      cumDealer,
+      retailNet,
+      cumRetailNet,
+      shortDiff,
+      shortBal,
+      shortHoldPct: 4.5,
+      marginDiff,
+      marginBal
+    });
+  }
+
+  for (let i = 0; i < totalDays; i++) {
+    const slice5 = kline.slice(Math.max(0, i - 4), i + 1);
+    const slice10 = kline.slice(Math.max(0, i - 9), i + 1);
+    const slice20 = kline.slice(Math.max(0, i - 19), i + 1);
+    const slice60 = kline.slice(Math.max(0, i - 59), i + 1);
+    const ma5 = slice5.reduce((s, d) => s + d.close, 0) / slice5.length;
+    const ma10 = slice10.reduce((s, d) => s + d.close, 0) / slice10.length;
+    const ma20 = slice20.reduce((s, d) => s + d.close, 0) / slice20.length;
+    const ma60 = slice60.reduce((s, d) => s + d.close, 0) / slice60.length;
+    const variance = slice20.reduce((s, d) => s + Math.pow(d.close - ma20, 2), 0) / slice20.length;
+    const stdDev = Math.sqrt(variance);
+    const slice9 = kline.slice(Math.max(0, i - 8), i + 1);
+    const high9 = Math.max(...slice9.map(d => d.high));
+    const low9 = Math.min(...slice9.map(d => d.low));
+    const rsv = high9 === low9 ? 50 : ((kline[i].close - low9) / (high9 - low9)) * 100;
+    kVal = (2 / 3) * kVal + (1 / 3) * rsv;
+    dVal = (2 / 3) * dVal + (1 / 3) * kVal;
+
+    kline[i].ma5 = Number(ma5.toFixed(2));
+    kline[i].ma10 = Number(ma10.toFixed(2));
+    kline[i].ma20 = Number(ma20.toFixed(2));
+    kline[i].ma60 = Number(ma60.toFixed(2));
+    kline[i].bollUpper = Number((ma20 + 2 * stdDev).toFixed(2));
+    kline[i].bollLower = Number((ma20 - 2 * stdDev).toFixed(2));
+    kline[i].k = Number(kVal.toFixed(2));
+    kline[i].d = Number(dVal.toFixed(2));
+  }
+
+  return {
+    code: 'TAIEX',
+    name: '加權指數',
+    isMarketIndex: true,
+    market: '大盤指數',
+    industry: '台股大盤加權指數 (單位:點/億元)',
+    price: targetPrice,
+    change: targetChange,
+    changePct: targetChangePct,
+    futuresPrice: 41635,
+    futuresChange: 1667,
+    futuresDiff: -27,
+    candleType: 'red-full',
+    inCount: 1,
+    inVol: 320,
+    outCount: 3,
+    outVol: 890,
+    volume: 8639,
+    warrantAmt: 18500,
+    monthSlope: 0.4,
+    lastWeekSlope: 0.9,
+    nextWeekSlope: 0.3,
+    bandWidth: 12,
+    bandPos: 7,
+    mainConsec: 1,
+    foreignConsec: -2,
+    trustConsec: 6,
+    main1: 14,
+    main5: 8,
+    main10: 6,
+    foreignPct: -10,
+    trustPct: 3,
+    dealerPct: -3,
+    dayTradePct: 36,
+    marginPct: -7,
+    shortPct: -1,
+    shortMarginRatio: 4.5,
+    biasYear: 18,
+    biasQuarter: 5.2,
+    biasMonth: 1.8,
+    fromHigh: 9.3,
+    fromLow: 1.48,
+    maintRatio: 163,
+    cumRevYoY: 28.4,
+    revYoY: 31.2,
+    revMoM: 6.5,
+    epsQ: 425,
+    eps4Q: 1680,
+    pe: 21.8,
+    pb: 2.65,
+    dividendYield: 2.85,
+    divYears: 25,
+    roe: 16.4,
+    targetPrice: 45000,
+    capitalShares: 1000000,
+    kline,
+    momentum: computeStockMomentum(kline)
+  };
+}
+

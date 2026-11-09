@@ -267,7 +267,9 @@ const PRESET_STRATEGIES = {
     { id: 'main-surge', label: '主力集中飆升 (主1 ≥ 20%)', desc: '當日主力買賣超集中度 ≥ 20%', check: s => s.main1 >= 20 },
     { id: 'main-wave', label: '主力波段鎖碼 (主1/主5/主10皆≥10%)', desc: '短中長天期主力同步集中買進', check: s => s.main1 >= 10 && s.main5 >= 10 && s.main10 >= 10 },
     { id: 'trust-streak', label: '投信連買作帳 (投信連買 ≥ 2日)', desc: '投信法人連續買超 ≥ 2 日', check: s => s.trustConsec >= 2 },
-    { id: 'dual-inst', label: '外資投信同買 (主力/外資/投信連買>0)', desc: '主力、外資、投信同步連買共振', check: s => s.mainConsec > 0 && s.foreignConsec > 0 && s.trustConsec > 0 },
+    { id: 'dual-inst', label: '主力+投信同買 (主力&投信同步偏多)', desc: '主力與投信同步買超或連買共振', check: s => (s.main1 > 0 || s.mainConsec > 0 || s.momentum?.main?.todayNet > 0) && (s.trustPct > 0 || s.trustConsec > 0 || s.momentum?.trust?.todayNet > 0) },
+    { id: 'dual-sell-inst', label: '📉 主力+投信同賣 (多殺多/空方狙擊)', desc: '主力與投信同步賣超調節或連賣，適合避開或放空操作', check: s => (s.main1 < 0 || s.mainConsec < 0 || s.momentum?.main?.todayNet < 0) && (s.trustPct < 0 || s.trustConsec < 0 || s.momentum?.trust?.todayNet < 0) },
+    { id: 'main-dump', label: '📉 主力波段出貨 (主1 ≤ -10% & 主5 ≤ -5%)', desc: '短中期主力分點持續大舉倒貨調節', check: s => s.main1 <= -10 && s.main5 <= -5 },
     { id: 'low-pb-company', label: '股淨比 < 0.5 公司派大買', desc: '股價淨值比低於 0.5 且主力集中買超，容易是長線低點', check: s => s.pb < 0.5 && s.main1 > 0 }
   ],
   tech: [
@@ -291,10 +293,21 @@ const PRESET_STRATEGIES = {
 const DEFAULT_SAVED_STRATEGIES = [
   {
     id: 'preset-wave-lock',
-    name: '🔥 主力投信雙鎖碼強勢股',
+    name: '🔥 主力投信雙鎖碼強勢股 (做多)',
     marketScope: 'ALL',
-    strategyIds: ['main-wave', 'trust-streak'],
-    customFilters: { minMain1: '15', minMain5: '10', minTrustConsec: '2', maxPb: '', minRevYoY: '', maxMaintRatio: '' }
+    momentumTarget: 'dual',
+    momentumStage: 'ALL',
+    strategyIds: [],
+    customFilters: { minMain1: '', minMain5: '', minTrustConsec: '', maxPb: '', minRevYoY: '', maxMaintRatio: '' }
+  },
+  {
+    id: 'preset-dual-sell-short',
+    name: '📉 主力投信雙賣空方狙擊 (做空/避險)',
+    marketScope: 'ALL',
+    momentumTarget: 'dualSell',
+    momentumStage: 'ALL',
+    strategyIds: [],
+    customFilters: { minMain1: '', minMain5: '', minTrustConsec: '', maxPb: '', minRevYoY: '', maxMaintRatio: '' }
   },
   {
     id: 'preset-value-bottom',
@@ -314,7 +327,7 @@ const DEFAULT_SAVED_STRATEGIES = [
 
 // 動能階段選項定義
 const MOMENTUM_STAGES = [
-  { id: 'ALL', label: '全部階段', desc: '顯示所有個股' },
+  { id: 'ALL', label: '全部階段', desc: '顯示所有符合鎖定對象之個股' },
   { id: 'DAY1_BUY', label: '🔥 轉折第1天買', desc: '昨日以前連續賣超或觀望，今日第 1 天正式轉為買超！' },
   { id: 'BUY_5D', label: '📈 5天內偏買', desc: '近 5 個交易日內買超 ≥ 3 天且近 5 日合計買超 > 0' },
   { id: 'BUY_10D', label: '🚀 10天內偏買', desc: '近 10 個交易日內買超 ≥ 6 天且近 10 日合計買超 > 0' },
@@ -324,7 +337,6 @@ const MOMENTUM_STAGES = [
 ];
 
 function checkMomentumMatch(stock, target, stage) {
-  if (stage === 'ALL') return true;
   const mom = stock.momentum || computeStockMomentum(stock.kline || []);
 
   const matchSingle = mObj => {
@@ -347,18 +359,54 @@ function checkMomentumMatch(stock, target, stage) {
     }
   };
 
+  const isPositiveBuy = mObj =>
+    Boolean(
+      mObj &&
+        (mObj.isDay1Buy ||
+          mObj.is5DBuy ||
+          mObj.is10DBuy ||
+          mObj.is20DBuy ||
+          mObj.todayNet > 0)
+    );
+
+  const isNegativeSell = mObj =>
+    Boolean(
+      mObj &&
+        (mObj.isDay1Sell ||
+          mObj.is5DSell ||
+          mObj.is10DSell ||
+          mObj.todayNet < 0)
+    );
+
   if (target === 'dual') {
-    // 主力 + 投信同步符合偏買或指定階段
+    // 主力 + 投信同買：即便 stage === 'ALL' 也立即篩出主力與投信同步偏買的個股
+    if (stage === 'ALL') {
+      return isPositiveBuy(mom.main) && isPositiveBuy(mom.trust);
+    }
     if (stage === 'DAY1_BUY') {
       return (mom.main?.isDay1Buy || mom.main?.is5DBuy) && (mom.trust?.isDay1Buy || mom.trust?.is5DBuy);
     }
     return matchSingle(mom.main) && matchSingle(mom.trust);
   }
+
+  if (target === 'dualSell') {
+    // 主力 + 投信同賣：即便 stage === 'ALL' 也立即篩出主力與投信同步偏賣的個股
+    if (stage === 'ALL' || stage === 'SELL_BEAR') {
+      return isNegativeSell(mom.main) && isNegativeSell(mom.trust);
+    }
+    if (stage === 'DAY1_SELL') {
+      return (mom.main?.isDay1Sell || mom.main?.is5DSell) && (mom.trust?.isDay1Sell || mom.trust?.is5DSell);
+    }
+    return matchSingle(mom.main) && matchSingle(mom.trust);
+  }
+
+  if (stage === 'ALL') return true;
   return matchSingle(mom[target]);
 }
 
 export default function StockScreener({
   stocks,
+  taiexData,
   pinnedCodes,
   onTogglePin,
   onSelectStock,
@@ -366,7 +414,7 @@ export default function StockScreener({
 }) {
   const [marketScope, setMarketScope] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  // 方案 C 核心：動能目標 ('main' | 'trust' | 'foreign' | 'dual') 與動能階段
+  // 方案 C 核心：動能目標 ('main' | 'trust' | 'foreign' | 'dual' | 'dualSell') 與動能階段
   const [momentumTarget, setMomentumTarget] = useState('main');
   const [momentumStage, setMomentumStage] = useState('ALL');
   // 方案 C 核心：右側免跳頁個股 K 線與分點快覽抽屜
@@ -379,13 +427,13 @@ export default function StockScreener({
   const [columnMode, setColumnMode] = useState('fig1');
   const [countdown, setCountdown] = useState(5);
   const [isLivePaused, setIsLivePaused] = useState(false);
-  const [taiexTick, setTaiexTick] = useState({ index: 22850, futures: 22868, diff: 18 });
+  const [tickJitter, setTickJitter] = useState(0);
   const [newStrategyName, setNewStrategyName] = useState('');
 
   // 自訂儲存策略清單 (持久化於 localStorage)
   const [savedStrategies, setSavedStrategies] = useState(() => {
     try {
-      const raw = localStorage.getItem('chipflow_saved_strategies');
+      const raw = localStorage.getItem('chipflow_saved_strategies_v2');
       return raw ? JSON.parse(raw) : DEFAULT_SAVED_STRATEGIES;
     } catch {
       return DEFAULT_SAVED_STRATEGIES;
@@ -407,12 +455,7 @@ export default function StockScreener({
     const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          const delta = Math.round((Math.random() - 0.48) * 3);
-          setTaiexTick(curr => ({
-            index: curr.index + delta,
-            futures: curr.futures + delta,
-            diff: curr.diff + (delta >= 0 ? 1 : -1)
-          }));
+          setTickJitter(Math.round((Math.random() - 0.48) * 2));
           return 5;
         }
         return prev - 1;
@@ -420,6 +463,12 @@ export default function StockScreener({
     }, 1000);
     return () => clearInterval(timer);
   }, [isLivePaused]);
+
+  const liveIndexVal = Number(((taiexData?.price || 41661.7) + tickJitter).toFixed(1));
+  const liveIndexChg = Number(((taiexData?.change || 1960.1) + tickJitter).toFixed(1));
+  const liveIndexPct = taiexData?.changePct ?? 4.94;
+  const liveFuturesVal = Math.round((taiexData?.futuresPrice || 41635) + tickJitter);
+  const liveFuturesDiff = Math.round(liveFuturesVal - liveIndexVal);
 
   const toggleStrategy = id => {
     setActiveStrategyIds(prev =>
@@ -430,6 +479,7 @@ export default function StockScreener({
   const clearAllConditions = () => {
     setMarketScope('ALL');
     setSearchQuery('');
+    setMomentumTarget('main');
     setMomentumStage('ALL');
     setActiveStrategyIds([]);
     setActiveCategoryDrawer(null);
@@ -459,7 +509,7 @@ export default function StockScreener({
     setSavedStrategies(updated);
     setNewStrategyName('');
     try {
-      localStorage.setItem('chipflow_saved_strategies', JSON.stringify(updated));
+      localStorage.setItem('chipflow_saved_strategies_v2', JSON.stringify(updated));
     } catch {
       // ignore storage errors
     }
@@ -487,7 +537,7 @@ export default function StockScreener({
     const updated = savedStrategies.filter(s => s.id !== id);
     setSavedStrategies(updated);
     try {
-      localStorage.setItem('chipflow_saved_strategies', JSON.stringify(updated));
+      localStorage.setItem('chipflow_saved_strategies_v2', JSON.stringify(updated));
     } catch {
       // ignore
     }
@@ -520,12 +570,21 @@ export default function StockScreener({
     return counts;
   }, [stocks, momentumTarget]);
 
+  const dualBuyCount = useMemo(
+    () => stocks.filter(s => checkMomentumMatch(s, 'dual', momentumStage)).length,
+    [stocks, momentumStage]
+  );
+  const dualSellCount = useMemo(
+    () => stocks.filter(s => checkMomentumMatch(s, 'dualSell', momentumStage)).length,
+    [stocks, momentumStage]
+  );
+
   const hasCustomFilter = Object.values(customFilters).some(v => v !== '');
   const totalFilterCount =
     activeStrategyIds.length +
     (hasCustomFilter ? 1 : 0) +
     (marketScope !== 'ALL' ? 1 : 0) +
-    (momentumStage !== 'ALL' ? 1 : 0);
+    (momentumStage !== 'ALL' || momentumTarget === 'dual' || momentumTarget === 'dualSell' ? 1 : 0);
 
   const filteredStocks = useMemo(() => {
     let list = [...stocks];
@@ -541,8 +600,8 @@ export default function StockScreener({
       list = list.filter(s => s.isUserCached);
     }
 
-    // 2. 動能轉折階段篩選 (第1天買 / 5天偏買 / 10天偏買 / 近期偏買 / 第1天賣 / 偏賣)
-    if (momentumStage !== 'ALL') {
+    // 2. 動能轉折階段篩選 (含主力+投信同買 / 主力+投信同賣 / 第1天買 / 5天偏買 / 10天偏買 / 近期偏買 / 第1天賣 / 偏賣)
+    if (momentumStage !== 'ALL' || momentumTarget === 'dual' || momentumTarget === 'dualSell') {
       list = list.filter(s => checkMomentumMatch(s, momentumTarget, momentumStage));
     }
 
@@ -780,17 +839,34 @@ export default function StockScreener({
           </div>
         </div>
 
-        {/* 中央加權與期貨即時報價 */}
+        {/* 中央加權與期貨即時報價 (點擊加權或期貨可開啟大盤加權指數 K 線與大盤籌碼工作站) */}
         <div className="toolbar-center-quotes">
-          <div className="market-quote-box">
-            <span className="quote-name">加權</span>
-            <span className="quote-val">{taiexTick.index}</span>
+          <div
+            className="market-quote-box clickable-market-box"
+            onClick={() => onSelectStock('TAIEX')}
+            style={{ cursor: 'pointer' }}
+            title="點擊查看大盤加權指數 K 線、布林通道與三大法人/散戶/融資融券籌碼"
+            id="btn-open-taiex-kline"
+          >
+            <span className="quote-name">加權 📈</span>
+            <span className={`quote-val ${liveIndexChg >= 0 ? 'red' : 'green'}`}>
+              {liveIndexVal.toLocaleString()}
+            </span>
+            <span className={`quote-diff ${liveIndexChg >= 0 ? 'red' : 'green'}`}>
+              {liveIndexChg >= 0 ? `▲${Math.round(liveIndexChg)}` : `▼${Math.abs(Math.round(liveIndexChg))}`} ({liveIndexPct >= 0 ? `+${liveIndexPct}` : liveIndexPct}%)
+            </span>
           </div>
-          <div className="market-quote-box">
+          <div
+            className="market-quote-box clickable-market-box"
+            onClick={() => onSelectStock('TAIEX')}
+            style={{ cursor: 'pointer' }}
+            title="台指期近月報價與正逆價差（點擊查看大盤 K 線與籌碼）"
+            id="btn-open-futures-kline"
+          >
             <span className="quote-name orange">期貨</span>
-            <span className="quote-val yellow">{taiexTick.futures}</span>
-            <span className={`quote-diff ${taiexTick.diff >= 0 ? 'green' : 'red'}`}>
-              {Math.abs(taiexTick.diff)}
+            <span className="quote-val yellow">{liveFuturesVal.toLocaleString()}</span>
+            <span className={`quote-diff ${liveFuturesDiff >= 0 ? 'red' : 'green'}`}>
+              價差 {liveFuturesDiff >= 0 ? `+${liveFuturesDiff}` : liveFuturesDiff}
             </span>
           </div>
           <div
@@ -853,7 +929,7 @@ export default function StockScreener({
         </div>
       </div>
 
-      {/* 方案 C 招牌功能：多空動能轉折快篩矩陣 (主力 / 投信 / 外資 × 第1天買 / 5天偏買 / 10天偏買 / 近期偏買 / 偏賣) */}
+      {/* 方案 C 招牌功能：多空動能轉折快篩矩陣 (主力 / 投信 / 外資 / 同買 / 同賣 × 第1天買 / 5天偏買 / 10天偏買 / 近期偏買 / 偏賣) */}
       <div className="momentum-matrix-bar" id="momentum-matrix-bar">
         <div className="mm-target-group">
           <span className="mm-group-label">🎯 鎖定對象：</span>
@@ -861,11 +937,12 @@ export default function StockScreener({
             { id: 'main', label: '主力買賣' },
             { id: 'trust', label: '投信法人' },
             { id: 'foreign', label: '外資法人' },
-            { id: 'dual', label: '🔥 主力+投信同買' }
+            { id: 'dual', label: `🔥 主力+投信同買 (${dualBuyCount})` },
+            { id: 'dualSell', label: `📉 主力+投信同賣 (${dualSellCount})`, isBear: true }
           ].map(t => (
             <button
               key={t.id}
-              className={`mm-target-btn ${momentumTarget === t.id ? 'active' : ''}`}
+              className={`mm-target-btn ${t.isBear ? 'bear-target' : ''} ${momentumTarget === t.id ? 'active' : ''}`}
               onClick={() => setMomentumTarget(t.id)}
               id={`btn-mm-target-${t.id}`}
             >

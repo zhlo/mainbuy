@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { computePeriodChipAnalysis, BROKER_LIST } from '../data/mockStocks';
 import { fetchSingleBrokerHistoryFromPortal } from '../services/liveStockService';
 
-// 通用副圖 SVG 元件（同時繪製紅綠柱狀圖 + 累計/庫存折線圖 + 同步十字查價線）
+// 通用副圖 SVG 元件（同時繪製紅綠柱狀圖 + 累計/庫存折線圖 + 同步十字查價線；若當日盤後籌碼尚未公布則自動留空）
 function SubIndicatorChart({
   data,
   hoverIdx,
@@ -62,20 +62,31 @@ function SubIndicatorChart({
     );
   }
 
-  const barVals = data.map(d => d[barKey] || 0);
-  const maxAbsBar = Math.max(10, ...barVals.map(v => Math.abs(v)));
+  const validBarVals = data
+    .map(d => d[barKey])
+    .filter(v => v !== null && v !== undefined && Number.isFinite(v));
+  const maxAbsBar = Math.max(10, ...validBarVals.map(v => Math.abs(v)));
   const zeroY = height * 0.56;
   const maxBarH = height * 0.4;
 
-  const lineVals = data.map(d => d[lineKey] || 0);
+  const validLineEntries = data
+    .map((d, i) => ({ val: d[lineKey], barVal: d[barKey], chipPending: d.chipPending, i }))
+    .filter(
+      item =>
+        item.val !== null &&
+        item.val !== undefined &&
+        !(item.barVal === null || item.barVal === undefined)
+    );
+
+  const lineVals = validLineEntries.length > 0 ? validLineEntries.map(e => e.val) : [0];
   const minLine = Math.min(...lineVals);
   const maxLine = Math.max(...lineVals);
   const lineRange = Math.max(1, maxLine - minLine);
 
-  const linePoints = data
-    .map((d, i) => {
-      const x = padLeft + i * stepX + stepX / 2;
-      const y = height - 6 - ((d[lineKey] - minLine) / lineRange) * (height - 12);
+  const linePoints = validLineEntries
+    .map(item => {
+      const x = padLeft + item.i * stepX + stepX / 2;
+      const y = height - 6 - ((item.val - minLine) / lineRange) * (height - 12);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
@@ -95,14 +106,19 @@ function SubIndicatorChart({
     >
       <line x1={padLeft} y1={zeroY} x2={width - padRight} y2={zeroY} stroke="var(--chart-grid)" />
       {data.map((d, i) => {
-        const val = d[barKey] || 0;
+        const rawVal = d[barKey];
+        // 若當日盤後籌碼尚未公布 (null / undefined)，保持空白不畫柱狀圖
+        if (rawVal === null || rawVal === undefined) {
+          return null;
+        }
+        const val = Number(rawVal) || 0;
         const x = padLeft + i * stepX + (stepX - barW) / 2;
         const h = Math.max(1.5, (Math.abs(val) / maxAbsBar) * maxBarH);
         const y = val >= 0 ? zeroY - h : zeroY;
         const color = val >= 0 ? '#dc2626' : '#15803d';
         return <rect key={i} x={x} y={y} width={barW} height={h} fill={color} />;
       })}
-      <polyline fill="none" stroke={lineColor} strokeWidth="1.5" points={linePoints} />
+      {linePoints && <polyline fill="none" stroke={lineColor} strokeWidth="1.5" points={linePoints} />}
       <line x1={hoverX} y1={0} x2={hoverX} y2={height} stroke="var(--crosshair-color)" strokeWidth="1" />
       <text x={width - padRight + 4} y={14} className="axis-label">
         {Math.round(maxAbsBar).toLocaleString()}
@@ -115,11 +131,15 @@ function SubIndicatorChart({
 export default function StockDetail({
   stock,
   allStocks,
+  taiexData,
   initialBrokerId,
   onSelectStock,
   onBackToScreener,
   onOpenFormulaModal
 }) {
+  const isMarketIndex = stock.code === 'TAIEX' || Boolean(stock.isMarketIndex);
+  const unitLabel = isMarketIndex ? '億' : '張';
+
   const [periodDays, setPeriodDays] = useState(1); // 1, 5, 10, 20, 60
   const [endDateIdx, setEndDateIdx] = useState(stock.kline.length - 1);
   const [hoverIdx, setHoverIdx] = useState(stock.kline.length - 1);
@@ -135,8 +155,8 @@ export default function StockDetail({
     return [topBuyerId || 'esun-chengzhong'];
   });
   const [dynamicBrokerHistories, setDynamicBrokerHistories] = useState({});
-  const [creditSubMode, setCreditSubMode] = useState('short'); // 'short' | 'margin'
-  const [subchartPreset, setSubchartPreset] = useState(4); // 預設顯示 4 層高清晰副圖，可一鍵切 1~6 層
+  const [creditSubMode, setCreditSubMode] = useState(isMarketIndex ? 'margin' : 'short'); // 'short' | 'margin'
+  const [subchartPreset, setSubchartPreset] = useState(5); // 預設顯示 5 層高清晰副圖 (含散戶指標)，可一鍵切 1~6 層
 
   // 個股筆記與到價提醒狀態 (持久化於 localStorage)
   const [stockNotes, setStockNotes] = useState(() => {
@@ -173,6 +193,9 @@ export default function StockDetail({
   useEffect(() => {
     setEndDateIdx(stock.kline.length - 1);
     setHoverIdx(stock.kline.length - 1);
+    if (stock.code === 'TAIEX') {
+      setCreditSubMode('margin');
+    }
     const topBuyerId = stock.realBrokerReports?.[1]?.buyers?.[0]?.id;
     if (topBuyerId && !initialBrokerId) {
       setSelectedBrokerIds([topBuyerId]);
@@ -204,6 +227,7 @@ export default function StockDetail({
 
   // 當使用者點選某個真實分點時，若該分點含有 zco0Path 且尚未抓取 60 日真實逐日歷史，背景自動向券商網站抓取
   useEffect(() => {
+    if (isMarketIndex) return;
     const primaryId = selectedBrokerIds[0];
     if (!primaryId) return;
     if (stock.realBrokerDailyHistory?.[primaryId] || dynamicBrokerHistories[primaryId]) return;
@@ -215,7 +239,7 @@ export default function StockDetail({
         }
       });
     }
-  }, [selectedBrokerIds, stock.code, stock.kline, stock.realBrokerDailyHistory, chipAnalysis.allBrokers, dynamicBrokerHistories]);
+  }, [isMarketIndex, selectedBrokerIds, stock.code, stock.kline, stock.realBrokerDailyHistory, chipAnalysis.allBrokers, dynamicBrokerHistories]);
 
   // 計算所勾選券商分點（可單選或複選「組群」）在可見區間內的每日買賣超與累計買賣超及成本線
   const selectedBrokerDailyData = useMemo(() => {
@@ -229,6 +253,7 @@ export default function StockDetail({
       let sell = 0;
       let dayBuyVal = 0;
       let dayProfitWan = 0;
+      let anyValid = false;
 
       ids.forEach(id => {
         const series =
@@ -236,13 +261,32 @@ export default function StockDetail({
           stock.realBrokerDailyHistory?.[id] ||
           stock.brokerSeries?.[id];
         const rec = series?.[day.index];
-        if (rec) {
-          buy += rec.buy;
-          sell += rec.sell;
-          dayBuyVal += rec.buy * (rec.avgBuy || day.close);
-          dayProfitWan += rec.profitWan;
+        if (rec && !rec.chipPending && rec.net !== null && rec.net !== undefined) {
+          anyValid = true;
+          buy += rec.buy || 0;
+          sell += rec.sell || 0;
+          dayBuyVal += (rec.buy || 0) * (rec.avgBuy || day.close);
+          dayProfitWan += rec.profitWan || 0;
         }
       });
+
+      const isDayPending = !anyValid && (day.chipPending || day.mainNet === null || day.mainNet === undefined);
+      if (isDayPending) {
+        const avgCostLine =
+          runningBuyLots > 0 ? Number((runningCostSum / runningBuyLots).toFixed(2)) : day.ma20;
+        return {
+          date: day.date,
+          close: day.close,
+          buy: null,
+          sell: null,
+          avgBuy: day.close,
+          brokerNet: null,
+          brokerCum: runningCum,
+          brokerCostLine: avgCostLine,
+          profitWan: 0,
+          chipPending: true
+        };
+      }
 
       const net = buy - sell;
       runningCum += net;
@@ -260,7 +304,8 @@ export default function StockDetail({
         brokerNet: net,
         brokerCum: runningCum,
         brokerCostLine: avgCostLine,
-        profitWan: dayProfitWan
+        profitWan: dayProfitWan,
+        chipPending: false
       };
     });
   }, [stock, visibleKline, selectedBrokerIds, dynamicBrokerHistories]);
@@ -438,13 +483,14 @@ export default function StockDetail({
           </button>
 
           <div className="stock-picker-group">
-            <span className="picker-label">股票代號</span>
+            <span className="picker-label">標的切換</span>
             <select
               className="stock-code-select"
               value={stock.code}
               onChange={e => onSelectStock(e.target.value)}
               id="select-detail-stock"
             >
+              <option value="TAIEX">📊 TAIEX 加權指數 (大盤K線/籌碼)</option>
               {allStocks.map(s => (
                 <option key={s.code} value={s.code}>
                   {s.code} {s.name}
@@ -452,6 +498,16 @@ export default function StockDetail({
               ))}
             </select>
             <strong className="stock-title-name">{stock.name}</strong>
+            {!isMarketIndex && (
+              <button
+                className="mini-badge"
+                onClick={() => onSelectStock('TAIEX')}
+                title="切換查看大盤加權指數 K 線、布林通道與三大法人/散戶/融資籌碼"
+                id="btn-switch-taiex-detail"
+              >
+                📊 看大盤加權K線
+              </button>
+            )}
           </div>
 
           <div className="mini-action-badges">
@@ -459,7 +515,7 @@ export default function StockDetail({
               className={`mini-badge ${rightTab === '籌碼分析' ? 'active' : ''}`}
               onClick={() => setRightTab('籌碼分析')}
             >
-              主力
+              {isMarketIndex ? '大盤籌碼' : '主力'}
             </button>
             <button
               className={`mini-badge ${rightTab === '體檢表' ? 'active' : ''}`}
@@ -561,11 +617,13 @@ export default function StockDetail({
                     if (tab === '分點K線') setOverlayMode('brokerCost');
                   }}
                 >
-                  {tab}
+                  {isMarketIndex && tab === '個股K線' ? '大盤K線' : tab}
                 </button>
               )
             )}
-            <span className="treasury-note">粉紅色區塊為庫藏股期間</span>
+            <span className="treasury-note">
+              {isMarketIndex ? '支援布林通道、均線與大盤法人/散戶/融資融券同步對照' : '粉紅色區塊為庫藏股期間'}
+            </span>
           </div>
 
           {/* 依據左側子頁籤切換對應專業視圖 */}
@@ -592,12 +650,14 @@ export default function StockDetail({
                   >
                     分價量
                   </button>
-                  <button
-                    className={`btn-overlay ${overlayMode === 'brokerCost' ? 'active' : ''}`}
-                    onClick={() => setOverlayMode('brokerCost')}
-                  >
-                    分點成本線
-                  </button>
+                  {!isMarketIndex && (
+                    <button
+                      className={`btn-overlay ${overlayMode === 'brokerCost' ? 'active' : ''}`}
+                      onClick={() => setOverlayMode('brokerCost')}
+                    >
+                      分點成本線
+                    </button>
+                  )}
                 </div>
 
                 {overlayMode === 'bollinger' ? (
@@ -606,7 +666,7 @@ export default function StockDetail({
                     <span className="legend-item gray">— 通道底 {hoveredDay.bollLower}</span>
                     <span className="legend-item red">— 20MA {hoveredDay.ma20}</span>
                   </div>
-                ) : overlayMode === 'brokerCost' ? (
+                ) : overlayMode === 'brokerCost' && !isMarketIndex ? (
                   <div className="overlay-legend">
                     <span className="legend-item" style={{ color: '#7c3aed', fontWeight: 700 }}>
                       — 【{selectedBrokerNames}】成本線 {hoveredBrokerPoint.brokerCostLine} 元
@@ -636,7 +696,15 @@ export default function StockDetail({
                 <span className={hoveredDay.changePct >= 0 ? 'val-up' : 'val-down'}>
                   漲幅 {hoveredDay.changePct}%
                 </span>
-                <span>量 <strong>{hoveredDay.volume.toLocaleString()}</strong></span>
+                <span>
+                  {isMarketIndex ? '成交金額' : '量'}{' '}
+                  <strong>{hoveredDay.volume.toLocaleString()} {isMarketIndex ? '億' : '張'}</strong>
+                </span>
+                {hoveredDay.chipPending && (
+                  <span className="pending-chip-badge" title="當日最新 K 線與成交量已即時顯示，未公布之盤後籌碼副圖自動留空">
+                    ⏳ 最新股價/量已載入・部分盤後籌碼待公布(留空)
+                  </span>
+                )}
               </div>
 
               {/* K 線 + 布林通道 + 成交量主圖 SVG */}
@@ -722,7 +790,7 @@ export default function StockDetail({
                       <polyline fill="none" stroke="#ef4444" strokeWidth="1.3" points={bollMidPts} />
                       <polyline fill="none" stroke="#64748b" strokeWidth="1.2" points={bollLowerPts} />
                     </>
-                  ) : overlayMode === 'brokerCost' ? (
+                  ) : overlayMode === 'brokerCost' && !isMarketIndex ? (
                     <>
                       <polyline fill="none" stroke="#ef4444" strokeWidth="1.1" strokeDasharray="3 3" points={bollMidPts} />
                       <polyline fill="none" stroke="#7c3aed" strokeWidth="2.2" points={brokerCostPts} />
@@ -772,12 +840,12 @@ export default function StockDetail({
                   {visibleKline[highestIdx] && (
                     <g
                       transform={`translate(${Math.min(
-                        mainChartWidth - padRight - 42,
+                        mainChartWidth - padRight - 48,
                         Math.max(10, padLeft + highestIdx * stepX - 12)
                       )}, ${Math.max(4, priceToY(visibleKline[highestIdx].high) - 18)})`}
                     >
-                      <rect width="34" height="15" rx="2" fill="var(--callout-bg)" stroke="#dc2626" strokeWidth="1" />
-                      <text x="17" y="11" textAnchor="middle" fill="#dc2626" fontSize="10" fontWeight="700">
+                      <rect width="42" height="15" rx="2" fill="var(--callout-bg)" stroke="#dc2626" strokeWidth="1" />
+                      <text x="21" y="11" textAnchor="middle" fill="#dc2626" fontSize="10" fontWeight="700">
                         {visibleKline[highestIdx].high}
                       </text>
                     </g>
@@ -785,12 +853,12 @@ export default function StockDetail({
                   {visibleKline[lowestIdx] && (
                     <g
                       transform={`translate(${Math.min(
-                        mainChartWidth - padRight - 42,
+                        mainChartWidth - padRight - 48,
                         Math.max(10, padLeft + lowestIdx * stepX - 12)
                       )}, ${Math.min(kAreaBottom - 16, priceToY(visibleKline[lowestIdx].low) + 3)})`}
                     >
-                      <rect width="34" height="15" rx="2" fill="var(--callout-bg)" stroke="#15803d" strokeWidth="1" />
-                      <text x="17" y="11" textAnchor="middle" fill="#15803d" fontSize="10" fontWeight="700">
+                      <rect width="42" height="15" rx="2" fill="var(--callout-bg)" stroke="#15803d" strokeWidth="1" />
+                      <text x="21" y="11" textAnchor="middle" fill="#15803d" fontSize="10" fontWeight="700">
                         {visibleKline[lowestIdx].low}
                       </text>
                     </g>
@@ -801,19 +869,23 @@ export default function StockDetail({
                 </svg>
               </div>
 
-              {/* 7 軌同步副圖區 */}
+              {/* 多軌同步副圖區（若最新交易日盤後籌碼尚未公布，自動留空不補 0） */}
               <div className="subcharts-stack">
-                {/* 7. 分點進出（若處於「分點K線」模式，置頂顯示分點進出！） */}
-                {leftTab === '分點K線' && (
+                {/* 分點進出（若處於「分點K線」模式，置頂顯示分點進出！） */}
+                {leftTab === '分點K線' && !isMarketIndex && (
                   <div className="subchart-panel broker-sync-panel">
                     <div className="subchart-header">
                       <span className="subchart-badge highlight-badge">主力分點進出 ({selectedBrokerNames})</span>
                       <span className="subchart-stat">
                         — 累計買賣超(張) <strong>{hoveredBrokerPoint.brokerCum}</strong>
                       </span>
-                      <span className={`subchart-stat ${hoveredBrokerPoint.brokerNet >= 0 ? 'val-up' : 'val-down'}`}>
-                        ▮ 當日買賣超 <strong>{hoveredBrokerPoint.brokerNet}</strong> (買 {hoveredBrokerPoint.buy} / 賣 {hoveredBrokerPoint.sell}｜均價 {hoveredBrokerPoint.avgBuy})
-                      </span>
+                      {hoveredBrokerPoint.brokerNet === null || hoveredBrokerPoint.brokerNet === undefined ? (
+                        <span className="pending-chip-badge">⏳ 盤後分點待公布 (留空)</span>
+                      ) : (
+                        <span className={`subchart-stat ${hoveredBrokerPoint.brokerNet >= 0 ? 'val-up' : 'val-down'}`}>
+                          ▮ 當日買賣超 <strong>{hoveredBrokerPoint.brokerNet}</strong> (買 {hoveredBrokerPoint.buy} / 賣 {hoveredBrokerPoint.sell}｜均價 {hoveredBrokerPoint.avgBuy})
+                        </span>
+                      )}
                     </div>
                     <SubIndicatorChart
                       data={selectedBrokerDailyData}
@@ -826,16 +898,22 @@ export default function StockDetail({
                   </div>
                 )}
 
-                {/* 1. 主力買賣超 */}
+                {/* 1. 主力買賣超 (大盤時為三大法人合計買賣超 億元) */}
                 <div className="subchart-panel">
                   <div className="subchart-header">
-                    <span className="subchart-badge">主力買賣超</span>
+                    <span className="subchart-badge">
+                      {isMarketIndex ? '大盤主力(三大法人合計)' : '主力買賣超'}
+                    </span>
                     <span className="subchart-stat">
-                      — 累計買賣超(張) <strong>{hoveredDay.cumMainNet.toLocaleString()}</strong>
+                      — 累計({unitLabel}) <strong>{hoveredDay.cumMainNet?.toLocaleString() ?? '--'}</strong>
                     </span>
-                    <span className={`subchart-stat ${hoveredDay.mainNet >= 0 ? 'val-up' : 'val-down'}`}>
-                      ▮ 買賣超(張) <strong>{hoveredDay.mainNet.toLocaleString()}</strong>
-                    </span>
+                    {hoveredDay.mainNet === null || hoveredDay.mainNet === undefined ? (
+                      <span className="pending-chip-badge">⏳ 盤後籌碼待公布 (留空)</span>
+                    ) : (
+                      <span className={`subchart-stat ${hoveredDay.mainNet >= 0 ? 'val-up' : 'val-down'}`}>
+                        ▮ 買賣超({unitLabel}) <strong>{hoveredDay.mainNet.toLocaleString()}</strong>
+                      </span>
+                    )}
                   </div>
                   <SubIndicatorChart
                     data={visibleKline}
@@ -852,11 +930,19 @@ export default function StockDetail({
                   <div className="subchart-header">
                     <span className="subchart-badge">外資</span>
                     <span className="subchart-stat">
-                      — 庫存 <strong>{hoveredDay.foreignHold.toLocaleString()} ({hoveredDay.foreignHoldPct}%)</strong>
+                      — {isMarketIndex ? `累計(${unitLabel})` : '庫存'}{' '}
+                      <strong>
+                        {hoveredDay.foreignHold?.toLocaleString() ?? '--'}
+                        {!isMarketIndex && ` (${hoveredDay.foreignHoldPct}%)`}
+                      </strong>
                     </span>
-                    <span className={`subchart-stat ${hoveredDay.foreignNet >= 0 ? 'val-up' : 'val-down'}`}>
-                      ▮ 買賣超(張) <strong>{hoveredDay.foreignNet.toLocaleString()}</strong>
-                    </span>
+                    {hoveredDay.foreignNet === null || hoveredDay.foreignNet === undefined ? (
+                      <span className="pending-chip-badge">⏳ 盤後籌碼待公布 (留空)</span>
+                    ) : (
+                      <span className={`subchart-stat ${hoveredDay.foreignNet >= 0 ? 'val-up' : 'val-down'}`}>
+                        ▮ 買賣超({unitLabel}) <strong>{hoveredDay.foreignNet.toLocaleString()}</strong>
+                      </span>
+                    )}
                   </div>
                   <SubIndicatorChart
                     data={visibleKline}
@@ -873,11 +959,19 @@ export default function StockDetail({
                   <div className="subchart-header">
                     <span className="subchart-badge">投信</span>
                     <span className="subchart-stat">
-                      — 庫存 <strong>{hoveredDay.trustHold.toLocaleString()} ({hoveredDay.trustHoldPct}%)</strong>
+                      — {isMarketIndex ? `累計(${unitLabel})` : '庫存'}{' '}
+                      <strong>
+                        {hoveredDay.trustHold?.toLocaleString() ?? '--'}
+                        {!isMarketIndex && ` (${hoveredDay.trustHoldPct}%)`}
+                      </strong>
                     </span>
-                    <span className={`subchart-stat ${hoveredDay.trustNet >= 0 ? 'val-up' : 'val-down'}`}>
-                      ▮ 買賣超(張) <strong>{hoveredDay.trustNet.toLocaleString()}</strong>
-                    </span>
+                    {hoveredDay.trustNet === null || hoveredDay.trustNet === undefined ? (
+                      <span className="pending-chip-badge">⏳ 盤後籌碼待公布 (留空)</span>
+                    ) : (
+                      <span className={`subchart-stat ${hoveredDay.trustNet >= 0 ? 'val-up' : 'val-down'}`}>
+                        ▮ 買賣超({unitLabel}) <strong>{hoveredDay.trustNet.toLocaleString()}</strong>
+                      </span>
+                    )}
                   </div>
                   <SubIndicatorChart
                     data={visibleKline}
@@ -893,13 +987,17 @@ export default function StockDetail({
                 {subchartPreset >= 4 && (
                   <div className="subchart-panel">
                     <div className="subchart-header">
-                      <span className="subchart-badge">自營商(避險)</span>
+                      <span className="subchart-badge">自營商(含避險)</span>
                       <span className="subchart-stat">
-                        — 累計 <strong>{hoveredDay.cumDealer.toLocaleString()}</strong>
+                        — 累計({unitLabel}) <strong>{hoveredDay.cumDealer?.toLocaleString() ?? '--'}</strong>
                       </span>
-                      <span className={`subchart-stat ${hoveredDay.dealerNet >= 0 ? 'val-up' : 'val-down'}`}>
-                        ▮ 自營商(避險) <strong>{hoveredDay.dealerNet.toLocaleString()}</strong>
-                      </span>
+                      {hoveredDay.dealerNet === null || hoveredDay.dealerNet === undefined ? (
+                        <span className="pending-chip-badge">⏳ 盤後籌碼待公布 (留空)</span>
+                      ) : (
+                        <span className={`subchart-stat ${hoveredDay.dealerNet >= 0 ? 'val-up' : 'val-down'}`}>
+                          ▮ 買賣超({unitLabel}) <strong>{hoveredDay.dealerNet.toLocaleString()}</strong>
+                        </span>
+                      )}
                     </div>
                     <SubIndicatorChart
                       data={visibleKline}
@@ -912,7 +1010,34 @@ export default function StockDetail({
                   </div>
                 )}
 
-                {/* 5. 融券 / 融資切換 */}
+                {/* 5. 散戶動向 (散戶多空指標) */}
+                {(isMarketIndex || subchartPreset >= 5) && (
+                  <div className="subchart-panel">
+                    <div className="subchart-header">
+                      <span className="subchart-badge">散戶動向(反向指標)</span>
+                      <span className="subchart-stat">
+                        — 累計({unitLabel}) <strong>{hoveredDay.cumRetailNet?.toLocaleString() ?? '--'}</strong>
+                      </span>
+                      {hoveredDay.retailNet === null || hoveredDay.retailNet === undefined ? (
+                        <span className="pending-chip-badge">⏳ 盤後籌碼待公布 (留空)</span>
+                      ) : (
+                        <span className={`subchart-stat ${hoveredDay.retailNet >= 0 ? 'val-up' : 'val-down'}`}>
+                          ▮ 散戶淨部位({unitLabel}) <strong>{hoveredDay.retailNet.toLocaleString()}</strong>
+                        </span>
+                      )}
+                    </div>
+                    <SubIndicatorChart
+                      data={visibleKline}
+                      hoverIdx={localHoverIdx}
+                      onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                      barKey="retailNet"
+                      lineKey="cumRetailNet"
+                      lineColor="#06b6d4"
+                    />
+                  </div>
+                )}
+
+                {/* 6. 融券 / 融資切換 */}
                 {subchartPreset >= 3 && (
                   <div className="subchart-panel">
                     <div className="subchart-header">
@@ -921,26 +1046,34 @@ export default function StockDetail({
                         value={creditSubMode}
                         onChange={e => setCreditSubMode(e.target.value)}
                       >
-                        <option value="short">融券</option>
                         <option value="margin">融資</option>
+                        <option value="short">融券</option>
                       </select>
                       {creditSubMode === 'short' ? (
                         <>
                           <span className="subchart-stat">
-                            — 餘額(張) <strong>{hoveredDay.shortBal.toLocaleString()} ({hoveredDay.shortHoldPct}%)</strong>
+                            — 融券餘額(張) <strong>{hoveredDay.shortBal?.toLocaleString() ?? '--'} ({hoveredDay.shortHoldPct}%)</strong>
                           </span>
-                          <span className={`subchart-stat ${hoveredDay.shortDiff >= 0 ? 'val-up' : 'val-down'}`}>
-                            ▮ 融券變動(張) <strong>{hoveredDay.shortDiff}</strong>
-                          </span>
+                          {hoveredDay.shortDiff === null || hoveredDay.shortDiff === undefined ? (
+                            <span className="pending-chip-badge">⏳ 信用籌碼待公布 (留空)</span>
+                          ) : (
+                            <span className={`subchart-stat ${hoveredDay.shortDiff >= 0 ? 'val-up' : 'val-down'}`}>
+                              ▮ 融券變動(張) <strong>{hoveredDay.shortDiff}</strong>
+                            </span>
+                          )}
                         </>
                       ) : (
                         <>
                           <span className="subchart-stat">
-                            — 融資餘額(張) <strong>{hoveredDay.marginBal.toLocaleString()} (維持率 {stock.maintRatio}%)</strong>
+                            — 融資餘額({unitLabel}) <strong>{hoveredDay.marginBal?.toLocaleString() ?? '--'} (維持率 {stock.maintRatio}%)</strong>
                           </span>
-                          <span className={`subchart-stat ${hoveredDay.marginDiff >= 0 ? 'val-up' : 'val-down'}`}>
-                            ▮ 融資變動(張) <strong>{hoveredDay.marginDiff}</strong>
-                          </span>
+                          {hoveredDay.marginDiff === null || hoveredDay.marginDiff === undefined ? (
+                            <span className="pending-chip-badge">⏳ 信用籌碼待公布 (留空)</span>
+                          ) : (
+                            <span className={`subchart-stat ${hoveredDay.marginDiff >= 0 ? 'val-up' : 'val-down'}`}>
+                              ▮ 融資變動({unitLabel}) <strong>{hoveredDay.marginDiff}</strong>
+                            </span>
+                          )}
                         </>
                       )}
                     </div>
@@ -955,7 +1088,7 @@ export default function StockDetail({
                   </div>
                 )}
 
-                {/* 6. KD 技術指標 */}
+                {/* 7. KD 技術指標 */}
                 {subchartPreset >= 2 && (
                   <div className="subchart-panel">
                     <div className="subchart-header">
@@ -972,17 +1105,21 @@ export default function StockDetail({
                   </div>
                 )}
 
-                {/* 7. 分點進出（預設在底部，與右側券商分點勾選即時連動！） */}
-                {leftTab !== '分點K線' && (
+                {/* 8. 分點進出（預設在底部，與右側券商分點勾選即時連動！） */}
+                {leftTab !== '分點K線' && !isMarketIndex && (
                   <div className="subchart-panel broker-sync-panel">
                     <div className="subchart-header">
                       <span className="subchart-badge highlight-badge">分點進出 ({selectedBrokerNames})</span>
                       <span className="subchart-stat">
                         — 累計買賣超(張) <strong>{hoveredBrokerPoint.brokerCum}</strong>
                       </span>
-                      <span className={`subchart-stat ${hoveredBrokerPoint.brokerNet >= 0 ? 'val-up' : 'val-down'}`}>
-                        ▮ 買賣超(張) <strong>{hoveredBrokerPoint.brokerNet}</strong> (買張 {hoveredBrokerPoint.buy} 賣張 {hoveredBrokerPoint.sell})
-                      </span>
+                      {hoveredBrokerPoint.brokerNet === null || hoveredBrokerPoint.brokerNet === undefined ? (
+                        <span className="pending-chip-badge">⏳ 盤後分點待公布 (留空)</span>
+                      ) : (
+                        <span className={`subchart-stat ${hoveredBrokerPoint.brokerNet >= 0 ? 'val-up' : 'val-down'}`}>
+                          ▮ 買賣超(張) <strong>{hoveredBrokerPoint.brokerNet}</strong> (買張 {hoveredBrokerPoint.buy} 賣張 {hoveredBrokerPoint.sell})
+                        </span>
+                      )}
                     </div>
                     <SubIndicatorChart
                       data={selectedBrokerDailyData}
@@ -1291,11 +1428,192 @@ export default function StockDetail({
               {stock.code} {stock.name}
             </span>
             <span className={`quote-price-main ${stock.change >= 0 ? 'val-up' : 'val-down'}`}>
-              {stock.price}元 {stock.change >= 0 ? `▲ ${stock.change}` : `▼ ${Math.abs(stock.change)}`} ({stock.changePct}%)
+              {stock.price?.toLocaleString()}{isMarketIndex ? '點' : '元'} {stock.change >= 0 ? `▲ ${stock.change}` : `▼ ${Math.abs(stock.change)}`} ({stock.changePct}%)
             </span>
           </div>
 
           {rightTab === '籌碼分析' ? (
+            isMarketIndex ? (
+              <>
+                {/* 大盤加權指數與三大法人/散戶/融資融券結構看板 */}
+                {(() => {
+                  const sliceStart = Math.max(0, endDateIdx - periodDays + 1);
+                  const periodSlice = stock.kline.slice(sliceStart, endDateIdx + 1);
+                  const sumField = key =>
+                    Number(
+                      periodSlice
+                        .reduce((acc, d) => acc + (Number(d[key]) || 0), 0)
+                        .toFixed(1)
+                    );
+                  const mMain = sumField('mainNet');
+                  const mForeign = sumField('foreignNet');
+                  const mTrust = sumField('trustNet');
+                  const mDealer = sumField('dealerNet');
+                  const mRetail = sumField('retailNet');
+                  const mMargin = sumField('marginDiff');
+                  const mVol = sumField('volume');
+                  const endBar = stock.kline[endDateIdx] || stock.kline[stock.kline.length - 1];
+
+                  const topBullStocks = [...allStocks]
+                    .sort((a, b) => (b.main1 || 0) - (a.main1 || 0))
+                    .slice(0, 10);
+                  const topBearStocks = [...allStocks]
+                    .sort((a, b) => (a.main1 || 0) - (b.main1 || 0))
+                    .slice(0, 10);
+
+                  return (
+                    <>
+                      <div className="chip-summary-grid">
+                        <div className="chip-metrics-table">
+                          <div className="metric-row">
+                            <span className="m-label">統計區間</span>
+                            <span className="m-val">{periodSlice[0]?.date} ~ {endBar?.date}</span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">台指期近月 / 價差</span>
+                            <span className="m-val">
+                              {(stock.futuresPrice || 41635).toLocaleString()} 點 ({stock.futuresDiff >= 0 ? `+${stock.futuresDiff}` : stock.futuresDiff})
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">區間成交金額</span>
+                            <span className="m-val">{mVol.toLocaleString()} 億元</span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">三大法人合計({periodDays}日)</span>
+                            <span className={`m-val ${mMain >= 0 ? 'val-up' : 'val-down'}`}>
+                              {mMain >= 0 ? `+${mMain}` : mMain} 億元
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">外資及陸資({periodDays}日)</span>
+                            <span className={`m-val ${mForeign >= 0 ? 'val-up' : 'val-down'}`}>
+                              {mForeign >= 0 ? `+${mForeign}` : mForeign} 億元
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">投信法人({periodDays}日)</span>
+                            <span className={`m-val ${mTrust >= 0 ? 'val-up' : 'val-down'}`}>
+                              {mTrust >= 0 ? `+${mTrust}` : mTrust} 億元
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">自營商含避險({periodDays}日)</span>
+                            <span className={`m-val ${mDealer >= 0 ? 'val-up' : 'val-down'}`}>
+                              {mDealer >= 0 ? `+${mDealer}` : mDealer} 億元
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">散戶多空指標({periodDays}日)</span>
+                            <span className={`m-val ${mRetail >= 0 ? 'val-up' : 'val-down'}`}>
+                              {mRetail >= 0 ? `+${mRetail}` : mRetail} 億元
+                            </span>
+                          </div>
+                          <div className="metric-row">
+                            <span className="m-label">大盤融資餘額 / 增減</span>
+                            <span className={`m-val ${mMargin >= 0 ? 'val-up' : 'val-down'}`}>
+                              {endBar?.marginBal?.toLocaleString()} 億 ({mMargin >= 0 ? `+${mMargin}` : mMargin} 億)
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={`main-force-card ${mMain >= 0 ? 'bullish' : 'bearish'}`}>
+                          <div className="mf-card-header">
+                            <div>{endBar?.shortDate || '最新'} ({periodDays}日)</div>
+                            <div>大盤法人動向</div>
+                          </div>
+                          <div className="mf-card-body">
+                            <div className="mf-big-status">{mMain >= 0 ? '大盤偏多' : '法人調節'}</div>
+                            <div className="mf-big-lots">{Math.abs(mMain).toLocaleString()} 億</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 權值與熱門股主力買超 vs 賣超排行 */}
+                      <div className="broker-section">
+                        <div className="broker-bar red-bar">
+                          <span className="broker-bar-title">🔥 權值/熱門股主力買超集中排行 (點擊切換個股K線)</span>
+                        </div>
+                        <div className="broker-table-scroll">
+                          <table className="broker-table">
+                            <thead>
+                              <tr>
+                                <th className="b-col-name">代號 / 名稱</th>
+                                <th>收盤價</th>
+                                <th>漲跌%</th>
+                                <th>主1%</th>
+                                <th>主5%</th>
+                                <th>投信連買</th>
+                                <th>動能階段</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {topBullStocks.map(s => (
+                                <tr
+                                  key={s.code}
+                                  className="broker-row row-tint-red"
+                                  onClick={() => onSelectStock(s.code)}
+                                >
+                                  <td className="b-col-name">
+                                    <strong>{s.code} {s.name}</strong>
+                                  </td>
+                                  <td>{s.price}</td>
+                                  <td className={s.changePct >= 0 ? 'val-up' : 'val-down'}>{s.changePct}%</td>
+                                  <td className="val-up">+{s.main1}%</td>
+                                  <td className={s.main5 >= 0 ? 'val-up' : 'val-down'}>{s.main5}%</td>
+                                  <td className={s.trustConsec >= 0 ? 'val-up' : 'val-down'}>{s.trustConsec}日</td>
+                                  <td>{s.momentum?.main?.stageLabel}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="broker-section">
+                        <div className="broker-bar green-bar">
+                          <span className="broker-bar-title">📉 權值/熱門股主力賣超調節排行 (點擊切換個股K線)</span>
+                        </div>
+                        <div className="broker-table-scroll">
+                          <table className="broker-table">
+                            <thead>
+                              <tr>
+                                <th className="b-col-name">代號 / 名稱</th>
+                                <th>收盤價</th>
+                                <th>漲跌%</th>
+                                <th>主1%</th>
+                                <th>主5%</th>
+                                <th>投信連買</th>
+                                <th>動能階段</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {topBearStocks.map(s => (
+                                <tr
+                                  key={s.code}
+                                  className="broker-row row-tint-green"
+                                  onClick={() => onSelectStock(s.code)}
+                                >
+                                  <td className="b-col-name">
+                                    <strong>{s.code} {s.name}</strong>
+                                  </td>
+                                  <td>{s.price}</td>
+                                  <td className={s.changePct >= 0 ? 'val-up' : 'val-down'}>{s.changePct}%</td>
+                                  <td className="val-down">{s.main1}%</td>
+                                  <td className={s.main5 >= 0 ? 'val-up' : 'val-down'}>{s.main5}%</td>
+                                  <td className={s.trustConsec >= 0 ? 'val-up' : 'val-down'}>{s.trustConsec}日</td>
+                                  <td>{s.momentum?.main?.stageLabel}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
             <>
               {/* 主力統計區間摘要 + 主力動向大看板 */}
               <div className="chip-summary-grid">
@@ -1353,7 +1671,7 @@ export default function StockDetail({
                 {/* 主力動向大看板 */}
                 <div className={`main-force-card ${chipAnalysis.isBullish ? 'bullish' : 'bearish'}`}>
                   <div className="mf-card-header">
-                    <div>{stock.kline[endDateIdx]?.shortDate || '今日'} ({periodDays}日)</div>
+                    <div>{chipAnalysis.endDate?.slice(5) || '最新'} ({periodDays}日)</div>
                     <div>主力動向</div>
                   </div>
                   <div className="mf-card-body">
@@ -1431,9 +1749,14 @@ export default function StockDetail({
                       : topBrokerFilter === 'topBuy15'
                         ? '區間買超15'
                         : '隔日沖主力券商'}
+                    <small className="broker-settle-note">
+                      （損益以 {chipAnalysis.endDate} 收盤 {chipAnalysis.reportClosePrice} 元結算）
+                    </small>
                   </span>
                   <div className="broker-bar-right">
-                    <span className="broker-filter-label">? 關鍵券商</span>
+                    <span className="broker-filter-label" onClick={onOpenFormulaModal} style={{ cursor: 'pointer' }} title="點擊查看分點區間損益計算公式">
+                      ? 損益公式
+                    </span>
                     <select
                       className="broker-filter-select"
                       value={topBrokerFilter}
@@ -1459,12 +1782,18 @@ export default function StockDetail({
                         <th>買均價</th>
                         <th>賣均價</th>
                         <th>交易量</th>
-                        <th>損益(萬)</th>
+                        <th title="損益(萬) = 當沖已實現損益 [min(買張,賣張)×(賣均-買均)×0.1] + 留倉未實現損益 [買賣超×(區間收盤價-均價)×0.1]">
+                          損益(萬) ⓘ
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {upperBrokerList.map(b => {
                         const isChecked = selectedBrokerIds.includes(b.id);
+                        const matched = b.matchedLots ?? Math.min(b.buy, b.sell);
+                        const realized = b.realizedWan ?? 0;
+                        const unrealized = b.unrealizedWan ?? b.profitWan;
+                        const profitTooltip = `【${b.name} 區間損益明細 (以 ${chipAnalysis.endDate} 收盤 ${chipAnalysis.reportClosePrice} 元結算)】\n• 當沖沖銷 ${matched} 張 × (賣均 ${b.avgSell} - 買均 ${b.avgBuy}) = ${realized >= 0 ? '+' : ''}${realized} 萬\n• 留倉部位 ${b.net >= 0 ? '+' : ''}${b.net} 張 × (收盤 ${chipAnalysis.reportClosePrice} - 成本 ${b.net >= 0 ? b.avgBuy : b.avgSell}) = ${unrealized >= 0 ? '+' : ''}${unrealized} 萬\n• 合計總損益 = ${b.profitWan >= 0 ? '+' : ''}${b.profitWan} 萬`;
                         return (
                           <tr
                             key={b.id}
@@ -1472,6 +1801,7 @@ export default function StockDetail({
                               isChecked ? 'row-broker-active' : ''
                             }`}
                             onClick={() => toggleBrokerCheck(b.id)}
+                            title={profitTooltip}
                           >
                             <td className="b-col-check" onClick={e => toggleBrokerMulti(b.id, e)}>
                               <input type="checkbox" checked={isChecked} onChange={() => {}} />
@@ -1486,7 +1816,9 @@ export default function StockDetail({
                             <td>{b.avgBuy > 0 ? b.avgBuy : '--'}</td>
                             <td>{b.avgSell > 0 ? b.avgSell : '--'}</td>
                             <td>{b.vol}</td>
-                            <td className={b.profitWan >= 0 ? 'val-up' : 'val-down'}>{b.profitWan}</td>
+                            <td className={b.profitWan >= 0 ? 'val-up' : 'val-down'} title={profitTooltip}>
+                              {b.profitWan >= 0 ? `+${b.profitWan}` : b.profitWan}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1504,9 +1836,14 @@ export default function StockDetail({
                       : bottomBrokerFilter === 'foreign'
                         ? '外資券商排行'
                         : '八大官股行庫'}
+                    <small className="broker-settle-note">
+                      （損益以 {chipAnalysis.endDate} 收盤 {chipAnalysis.reportClosePrice} 元結算）
+                    </small>
                   </span>
                   <div className="broker-bar-right">
-                    <span className="broker-filter-label">? 關鍵券商</span>
+                    <span className="broker-filter-label" onClick={onOpenFormulaModal} style={{ cursor: 'pointer' }} title="點擊查看分點區間損益計算公式">
+                      ? 損益公式
+                    </span>
                     <select
                       className="broker-filter-select"
                       value={bottomBrokerFilter}
@@ -1532,12 +1869,18 @@ export default function StockDetail({
                         <th>買均價</th>
                         <th>賣均價</th>
                         <th>交易量</th>
-                        <th>損益(萬)</th>
+                        <th title="損益(萬) = 當沖已實現損益 [min(買張,賣張)×(賣均-買均)×0.1] + 留倉未實現損益 [買賣超×(區間收盤價-均價)×0.1]">
+                          損益(萬) ⓘ
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {lowerBrokerList.map(b => {
                         const isChecked = selectedBrokerIds.includes(b.id);
+                        const matched = b.matchedLots ?? Math.min(b.buy, b.sell);
+                        const realized = b.realizedWan ?? 0;
+                        const unrealized = b.unrealizedWan ?? b.profitWan;
+                        const profitTooltip = `【${b.name} 區間損益明細 (以 ${chipAnalysis.endDate} 收盤 ${chipAnalysis.reportClosePrice} 元結算)】\n• 當沖沖銷 ${matched} 張 × (賣均 ${b.avgSell} - 買均 ${b.avgBuy}) = ${realized >= 0 ? '+' : ''}${realized} 萬\n• 留倉部位 ${b.net >= 0 ? '+' : ''}${b.net} 張 × (賣均 ${b.avgSell || chipAnalysis.reportClosePrice} - 收盤 ${chipAnalysis.reportClosePrice}) = ${unrealized >= 0 ? '+' : ''}${unrealized} 萬\n• 合計總損益 = ${b.profitWan >= 0 ? '+' : ''}${b.profitWan} 萬`;
                         return (
                           <tr
                             key={b.id}
@@ -1545,6 +1888,7 @@ export default function StockDetail({
                               isChecked ? 'row-broker-active' : ''
                             }`}
                             onClick={() => toggleBrokerCheck(b.id)}
+                            title={profitTooltip}
                           >
                             <td className="b-col-check" onClick={e => toggleBrokerMulti(b.id, e)}>
                               <input type="checkbox" checked={isChecked} onChange={() => {}} />
@@ -1559,7 +1903,9 @@ export default function StockDetail({
                             <td>{b.avgBuy > 0 ? b.avgBuy : '--'}</td>
                             <td>{b.avgSell > 0 ? b.avgSell : '--'}</td>
                             <td>{b.vol}</td>
-                            <td className={b.profitWan >= 0 ? 'val-up' : 'val-down'}>{b.profitWan}</td>
+                            <td className={b.profitWan >= 0 ? 'val-up' : 'val-down'} title={profitTooltip}>
+                              {b.profitWan >= 0 ? `+${b.profitWan}` : b.profitWan}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1568,6 +1914,7 @@ export default function StockDetail({
                 </div>
               </div>
             </>
+            )
           ) : rightTab === '體檢表' ? (
             <div className="right-tab-panel">
               <h3>🩺 {stock.code} {stock.name} 六維度籌碼與基本面綜合體檢表</h3>
@@ -1609,13 +1956,17 @@ export default function StockDetail({
                   </thead>
                   <tbody>
                     {[...selectedBrokerDailyData].reverse().map(d => (
-                      <tr key={d.date} className={d.brokerNet >= 0 ? 'row-tint-red' : 'row-tint-green'}>
+                      <tr key={d.date} className={(d.brokerNet || 0) >= 0 ? 'row-tint-red' : 'row-tint-green'}>
                         <td className="b-col-name">{d.date}</td>
                         <td>{d.close}</td>
-                        <td>{d.buy}</td>
-                        <td>{d.sell}</td>
-                        <td className={d.brokerNet >= 0 ? 'val-up' : 'val-down'}>
-                          {d.brokerNet >= 0 ? `+${d.brokerNet}` : d.brokerNet}
+                        <td>{d.buy === null ? '待公布' : d.buy}</td>
+                        <td>{d.sell === null ? '待公布' : d.sell}</td>
+                        <td className={(d.brokerNet || 0) >= 0 ? 'val-up' : 'val-down'}>
+                          {d.brokerNet === null
+                            ? '⏳留空'
+                            : d.brokerNet >= 0
+                              ? `+${d.brokerNet}`
+                              : d.brokerNet}
                         </td>
                         <td>{d.avgBuy}</td>
                         <td>{d.brokerCum}</td>

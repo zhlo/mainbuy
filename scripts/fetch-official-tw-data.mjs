@@ -7,17 +7,20 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { generateStockDataset, computeStockMomentum } from '../src/data/mockStocks.js';
+import { generateStockDataset, computeStockMomentum, computeBrokerProfitMetrics } from '../src/data/mockStocks.js';
 import {
   BROKER_PORTAL_HOSTS,
+  MONEYDJ_RANGE_MAP,
   fetchOfficialStockData,
+  fetchOfficialTaiexData,
   parseMoneyDjBrokerHtml,
   parseMoneyDjSingleBrokerHistoryHtml
 } from '../src/services/liveStockService.js';
 
 async function fetchDirectBrokerHtml(code, days, currentPrice) {
+  const rangeIdx = MONEYDJ_RANGE_MAP[days] || 1;
   for (const host of BROKER_PORTAL_HOSTS) {
-    const url = `${host}/z/zc/zco/zco_${code}_${days}.djhtm`;
+    const url = `${host}/z/zc/zco/zco_${code}_${rangeIdx}.djhtm`;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 7500);
@@ -81,29 +84,70 @@ async function fetchDirectSingleBrokerHistory(zco0Path, kline) {
   return null;
 }
 
+function repriceReportWithMatchedClose(rep, kline, fallbackClose) {
+  if (!rep) return null;
+  const matchedBar = rep.dateRangeEnd
+    ? kline.find(d => d.compactDate === rep.dateRangeEnd || d.date.replace(/\//g, '-') === rep.dateRangeEnd)
+    : null;
+  const closePrice = matchedBar?.close || fallbackClose;
+  return {
+    ...rep,
+    reportClosePrice: closePrice,
+    buyers: (rep.buyers || []).map(b => ({
+      ...b,
+      ...computeBrokerProfitMetrics(b.buy, b.sell, b.avgBuy, b.avgSell, closePrice)
+    })),
+    sellers: (rep.sellers || []).map(s => ({
+      ...s,
+      ...computeBrokerProfitMetrics(s.buy, s.sell, s.avgBuy, s.avgSell, closePrice)
+    }))
+  };
+}
+
 async function crawlSingleStock(base, token) {
   try {
     const stock = await fetchOfficialStockData(base.code, base, token, false);
 
-    // 直接從券商網站抓取 1日 / 5日 / 10日 / 20日 分點買賣超前15名
-    const [rep1, rep5, rep10, rep20] = await Promise.all([
-      fetchDirectBrokerHtml(base.code, 1, stock.price),
-      fetchDirectBrokerHtml(base.code, 5, stock.price),
-      fetchDirectBrokerHtml(base.code, 10, stock.price),
-      fetchDirectBrokerHtml(base.code, 20, stock.price)
+    const publishedChipDays = stock.kline.filter(d => d.mainNet !== null && d.mainNet !== undefined);
+    const lastChipDay = publishedChipDays[publishedChipDays.length - 1] || stock.kline[stock.kline.length - 1];
+    const chipClose = lastChipDay?.close || stock.price;
+
+    // 直接從券商網站抓取 1日(idx=1) / 5日(idx=2) / 10日(idx=3) / 20日(idx=4) 分點買賣超前15名
+    const [raw1, raw5, raw10, raw20] = await Promise.all([
+      fetchDirectBrokerHtml(base.code, 1, chipClose),
+      fetchDirectBrokerHtml(base.code, 5, chipClose),
+      fetchDirectBrokerHtml(base.code, 10, chipClose),
+      fetchDirectBrokerHtml(base.code, 20, chipClose)
     ]);
+
+    const rep1 = repriceReportWithMatchedClose(raw1, stock.kline, chipClose);
+    const rep5 = repriceReportWithMatchedClose(raw5, stock.kline, chipClose);
+    const rep10 = repriceReportWithMatchedClose(raw10, stock.kline, chipClose);
+    const rep20 = repriceReportWithMatchedClose(raw20, stock.kline, chipClose);
 
     stock.realBrokerReports = {};
     stock.realBrokerDailyHistory = {};
-    const lastDay = stock.kline[stock.kline.length - 1];
-    const vol1 = Math.max(1, lastDay.volume);
-    const vol5 = Math.max(1, stock.kline.slice(-5).reduce((s, d) => s + d.volume, 0));
-    const vol10 = Math.max(1, stock.kline.slice(-10).reduce((s, d) => s + d.volume, 0));
+
+    const rep1EndIdx = rep1?.dateRangeEnd
+      ? stock.kline.findIndex(d => d.compactDate === rep1.dateRangeEnd || d.date.replace(/\//g, '-') === rep1.dateRangeEnd)
+      : -1;
+    const anchorIdx = rep1EndIdx >= 0 ? rep1EndIdx : stock.kline.indexOf(lastChipDay);
+    const anchorSlice = stock.kline.slice(0, anchorIdx >= 0 ? anchorIdx + 1 : stock.kline.length);
+    const anchorBar = anchorSlice[anchorSlice.length - 1] || stock.kline[stock.kline.length - 1];
+
+    const vol1 = Math.max(1, anchorBar.volume);
+    const vol5 = Math.max(1, anchorSlice.slice(-5).reduce((s, d) => s + d.volume, 0));
+    const vol10 = Math.max(1, anchorSlice.slice(-10).reduce((s, d) => s + d.volume, 0));
 
     if (rep1) {
       stock.realBrokerReports[1] = rep1;
       stock.main1 = Math.round(((rep1.top15BuySum + rep1.top15SellSum) / vol1) * 100);
-      lastDay.mainNet = rep1.top15BuySum + rep1.top15SellSum;
+      anchorBar.mainNet = rep1.top15BuySum + rep1.top15SellSum;
+      anchorBar.chipPending = false;
+      for (let k = anchorIdx + 1; k < stock.kline.length; k++) {
+        stock.kline[k].mainNet = null;
+        stock.kline[k].chipPending = true;
+      }
       stock.hasRealBrokerReport = true;
 
       // 抓取買超第1名與賣超第1名分點的過去60天真實逐日買賣超 (zco0.djhtm)
@@ -128,15 +172,15 @@ async function crawlSingleStock(base, token) {
       stock.realBrokerReports[20] = rep20;
     }
 
-    // 重新計算包含真實主力分點差額的動能轉折指標
+    // 重新計算包含真實主力分點差額的動能轉折指標 (會自動忽略最新盤中/未公布籌碼之留空日)
     stock.momentum = computeStockMomentum(stock.kline);
 
     // 移除龐大的合成 brokerSeries 交由前端載入時毫秒級動態還原，使 JSON 檔案縮小 95%
     delete stock.brokerSeries;
 
     console.log(
-      `✅ ${stock.code} ${stock.name}: 收盤 ${stock.price} (${stock.changePct}%), 主1=${stock.main1}%, 動能=${stock.momentum?.main?.stageLabel}, 分點=${
-        rep1 ? `買超#1 ${rep1.buyers[0]?.name}(+${rep1.buyers[0]?.net}張)` : '法人推算'
+      `✅ ${stock.code} ${stock.name}: 收盤 ${stock.price} (${stock.changePct}%), 主1=${stock.main1}%, 動能=${stock.momentum?.main?.stageLabel}, 分點(${rep1?.dateRangeEnd || '最新'})=${
+        rep1 ? `買超#1 ${rep1.buyers[0]?.name}(+${rep1.buyers[0]?.net}張, 損益${rep1.buyers[0]?.profitWan}萬)` : '法人推算'
       }`
     );
     return stock;
@@ -149,11 +193,16 @@ async function crawlSingleStock(base, token) {
 }
 
 async function main() {
-  console.log('🚀 開始從證交所 / 櫃買中心 / 券商分點網站 / FinMind 批次抓取最新台股正式資料...');
+  console.log('🚀 開始從證交所 / 櫃買中心 / 券商分點網站 / FinMind 批次抓取最新台股正式資料與加權指數...');
   const baseStocks = generateStockDataset();
   const token = process.env.FINMIND_TOKEN || '';
   const updatedStocks = [];
   let latestDate = '';
+
+  const taiex = await fetchOfficialTaiexData(token);
+  console.log(
+    `📊 加權指數 TAIEX: ${taiex.price} (${taiex.change >= 0 ? '+' : ''}${taiex.change}, ${taiex.changePct}%), 台指期: ${taiex.futuresPrice}`
+  );
 
   // 每次並行抓取 5 檔，兼顧速度與穩定度
   const BATCH_SIZE = 5;
@@ -173,12 +222,13 @@ async function main() {
     outPath,
     JSON.stringify({
       updatedAt: new Date().toISOString(),
-      latestDate,
+      latestDate: taiex.latestTradeDate || latestDate,
+      taiex,
       stocks: updatedStocks
     }),
     'utf8'
   );
-  console.log(`🎉 已成功寫入 ${updatedStocks.length} 檔正式資料至 ${outPath} (最新交易日: ${latestDate})`);
+  console.log(`🎉 已成功寫入 ${updatedStocks.length} 檔正式資料與加權指數至 ${outPath} (最新交易日: ${taiex.latestTradeDate || latestDate})`);
 }
 
 main().catch(err => {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { generateStockDataset } from './data/mockStocks';
+import { generateStockDataset, generateTaiexDataset } from './data/mockStocks';
 import {
   fetchOfficialStockData,
+  fetchOfficialTaiexData,
   fetchPrebuiltCloudSnapshot,
   hydrateStockBrokerSeries,
   loadCachedStocksFromStorage,
@@ -30,10 +31,12 @@ export default function App() {
     return merged;
   });
 
+  const [taiexData, setTaiexData] = useState(() => generateTaiexDataset(stocks));
+
   const [activeView, setActiveView] = useState('screener'); // 'screener' | 'detail' | 'radar'
   const [selectedCode, setSelectedCode] = useState('2330');
   const [initialBrokerId, setInitialBrokerId] = useState('');
-  const [pinnedCodes, setPinnedCodes] = useState(['2330', '2049', '2317', '2454']);
+  const [pinnedCodes, setPinnedCodes] = useState(['2330', '2345', '2317', '2454']);
   const [isFormulaOpen, setIsFormulaOpen] = useState(false);
   const [isDataSourceOpen, setIsDataSourceOpen] = useState(false);
   const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'classic' | 'light'
@@ -73,6 +76,14 @@ export default function App() {
   // 同步單一股票最新正式資料（含富邦/元大/宏遠券商網站真實分點日報表）並自動寫入本機快取
   const syncSingleStock = useCallback(
     async (code, existingStock = null, includeBrokerPortal = false) => {
+      if (code === 'TAIEX') {
+        const updatedTaiex = await fetchOfficialTaiexData(
+          dataSourceConfig.finmindToken,
+          existingStock || taiexData
+        );
+        if (updatedTaiex) setTaiexData(updatedTaiex);
+        return updatedTaiex;
+      }
       try {
         const updated = await fetchOfficialStockData(
           code,
@@ -103,10 +114,10 @@ export default function App() {
         return null;
       }
     },
-    [dataSourceConfig.finmindToken]
+    [dataSourceConfig.finmindToken, taiexData]
   );
 
-  // 批次同步清單中所有個股的最新台股正式資料
+  // 批次同步清單中所有個股與大盤加權指數的最新台股正式資料
   const syncAllStocksLive = useCallback(async () => {
     setSyncState(prev => ({
       ...prev,
@@ -120,6 +131,19 @@ export default function App() {
     const cloudSnapshot = await fetchPrebuiltCloudSnapshot();
     if (cloudSnapshot && Array.isArray(cloudSnapshot.stocks)) {
       setStocks(cloudSnapshot.stocks);
+      if (cloudSnapshot.taiex) {
+        setTaiexData(cloudSnapshot.taiex);
+      }
+      // 背景同步最新大盤加權指數與台指期
+      fetchOfficialTaiexData(
+        dataSourceConfig.finmindToken,
+        cloudSnapshot.taiex || generateTaiexDataset(cloudSnapshot.stocks)
+      )
+        .then(liveTaiex => {
+          if (liveTaiex) setTaiexData(liveTaiex);
+        })
+        .catch(() => {});
+
       setSyncState({
         status: 'synced',
         syncedCount: cloudSnapshot.stocks.length,
@@ -132,6 +156,12 @@ export default function App() {
     }
 
     // 步驟 2：若無預建快照，直接由瀏覽器向公開 API 與券商分點網站抓取
+    fetchOfficialTaiexData(dataSourceConfig.finmindToken, taiexData)
+      .then(liveTaiex => {
+        if (liveTaiex) setTaiexData(liveTaiex);
+      })
+      .catch(() => {});
+
     let successCount = 0;
     let latestDateFound = '';
 
@@ -164,7 +194,7 @@ export default function App() {
           ? '目前網路環境無法直連外部公開 API，已自動使用內建基準資料庫'
           : ''
     }));
-  }, [stocks, selectedCode, syncSingleStock]);
+  }, [stocks, selectedCode, syncSingleStock, dataSourceConfig.finmindToken, taiexData]);
 
   useEffect(() => {
     if (dataSourceConfig.mode === 'live') {
@@ -178,6 +208,14 @@ export default function App() {
     e.preventDefault();
     const q = customLookupCode.trim();
     if (!q) return;
+
+    if (q.toUpperCase() === 'TAIEX' || q.includes('加權') || q.includes('大盤')) {
+      setSelectedCode('TAIEX');
+      setActiveView('detail');
+      setCustomLookupCode('');
+      syncSingleStock('TAIEX', taiexData, false);
+      return;
+    }
 
     const existing = stocks.find(s => s.code === q || s.name.includes(q));
     if (existing && existing.hasRealBrokerReport) {
@@ -213,11 +251,20 @@ export default function App() {
     }
   };
 
-  const selectedStock = stocks.find(s => s.code === selectedCode) || stocks[0];
+  const selectedStock =
+    selectedCode === 'TAIEX'
+      ? taiexData
+      : stocks.find(s => s.code === selectedCode) || stocks[0];
 
   const handleSelectStock = code => {
     setSelectedCode(code);
     setActiveView('detail');
+    if (code === 'TAIEX') {
+      if (dataSourceConfig.mode === 'live') {
+        syncSingleStock('TAIEX', taiexData, false);
+      }
+      return;
+    }
     const target = stocks.find(s => s.code === code);
     if (target) {
       saveStockToLocalCache(target);
@@ -255,7 +302,13 @@ export default function App() {
     <div className={`app-shell ${currentSurfaceTheme}`}>
       {/* 全域頂部導覽列 */}
       <header className="global-navbar" id="global-navbar">
-        <div className="brand-area">
+        <div
+          className="brand-area"
+          onClick={() => setActiveView('screener')}
+          style={{ cursor: 'pointer' }}
+          title="點擊返回主力選股首頁"
+          id="brand-home-link"
+        >
           <div className="brand-logo">M</div>
           <div>
             <h1 className="brand-title">MainBuy 主力雷達</h1>
@@ -285,7 +338,11 @@ export default function App() {
             id="nav-btn-detail"
           >
             <span className="tab-step">2</span>
-            <span>個股K線：{selectedStock.code} {selectedStock.name}</span>
+            <span>
+              {selectedStock.code === 'TAIEX'
+                ? `大盤K線：加權指數 (${selectedStock.price?.toLocaleString()})`
+                : `個股K線：${selectedStock.code} ${selectedStock.name}`}
+            </span>
           </button>
           <button
             className={`nav-tab-btn ${activeView === 'radar' ? 'active' : ''}`}
@@ -365,6 +422,7 @@ export default function App() {
         {activeView === 'screener' ? (
           <StockScreener
             stocks={stocks}
+            taiexData={taiexData}
             pinnedCodes={pinnedCodes}
             onTogglePin={handleTogglePin}
             onSelectStock={handleSelectStock}
@@ -379,6 +437,7 @@ export default function App() {
           <StockDetail
             stock={selectedStock}
             allStocks={stocks}
+            taiexData={taiexData}
             initialBrokerId={initialBrokerId}
             onSelectStock={handleSelectStock}
             onBackToScreener={() => setActiveView('screener')}

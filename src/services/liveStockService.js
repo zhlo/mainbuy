@@ -4,10 +4,24 @@
 // 3. FinMind 免費公開 API (TaiwanStockPrice, TaiwanStockInstitutionalInvestorsBuySell, TaiwanStockMarginPurchaseShortSale, TaiwanStockShareholding, TaiwanStockPER, TaiwanStockMonthRevenue)
 // 4. 瀏覽器端持久化快取 (localStorage: mainbuy_cached_stocks_v2)，搜尋過的股票秒開免重抓並自動納入選股池
 
-import { BROKER_LIST, computeStockMomentum } from '../data/mockStocks.js';
+import {
+  BROKER_LIST,
+  computeStockMomentum,
+  computeBrokerProfitMetrics,
+  generateTaiexDataset
+} from '../data/mockStocks.js';
 
 const FINMIND_ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
-const LOCAL_CACHE_KEY = 'mainbuy_cached_stocks_v2';
+const LOCAL_CACHE_KEY = 'mainbuy_cached_stocks_v3';
+
+// MoneyDJ zco_{code}_{rangeIdx}.djhtm 天數對應索引：1=1日, 2=5日, 3=10日, 4=20日, 5=60日
+export const MONEYDJ_RANGE_MAP = {
+  1: 1,
+  5: 2,
+  10: 3,
+  20: 4,
+  60: 5
+};
 
 // 券商網站分點進出日報表來源清單 (嘉實 MoneyDJ 券商看盤主機)
 export const BROKER_PORTAL_HOSTS = [
@@ -128,18 +142,31 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
     return m ? m[1] : '';
   };
 
-  // 擷取資料日期區間
+  // 擷取 MoneyDJ zco 實際統計日期區間 (getYMD2=起始日, getYMD1=結束日)
   let dateRangeStart = '';
   let dateRangeEnd = '';
-  const dateMatch =
-    html.match(/(\d{2,4})\/(\d{2})\/(\d{2})\s*~\s*(\d{2,4})\/(\d{2})\/(\d{2})/) ||
-    html.match(/資料日期\s*[:：]\s*(\d{2,4})\/(\d{2})\/(\d{2})/);
-  if (dateMatch) {
-    const toY4 = y => (Number(y) < 1911 ? String(Number(y) + 1911) : y);
-    dateRangeStart = `${toY4(dateMatch[1])}${dateMatch[2]}${dateMatch[3]}`;
-    dateRangeEnd = dateMatch[4]
-      ? `${toY4(dateMatch[4])}${dateMatch[5]}${dateMatch[6]}`
-      : dateRangeStart;
+  const ymd1 = html.match(/var\s+getYMD1\s*=\s*['"]([^'"]+)['"]/i)?.[1];
+  const ymd2 = html.match(/var\s+getYMD2\s*=\s*['"]([^'"]+)['"]/i)?.[1];
+  if (ymd1 && ymd2) {
+    const fmtCompact = s => {
+      const parts = s.split(' ')[0].split(/[/-]/);
+      if (parts.length < 3) return '';
+      const y = Number(parts[0]) < 1911 ? String(Number(parts[0]) + 1911) : parts[0];
+      return `${y}${String(parts[1]).padStart(2, '0')}${String(parts[2]).padStart(2, '0')}`;
+    };
+    dateRangeStart = fmtCompact(ymd2);
+    dateRangeEnd = fmtCompact(ymd1);
+  } else {
+    const dateMatch =
+      html.match(/(\d{2,4})\/(\d{2})\/(\d{2})\s*~\s*(\d{2,4})\/(\d{2})\/(\d{2})/) ||
+      html.match(/資料日期\s*[:：]\s*(\d{2,4})\/(\d{2})\/(\d{2})/);
+    if (dateMatch) {
+      const toY4 = y => (Number(y) < 1911 ? String(Number(y) + 1911) : y);
+      dateRangeStart = `${toY4(dateMatch[1])}${dateMatch[2]}${dateMatch[3]}`;
+      dateRangeEnd = dateMatch[4]
+        ? `${toY4(dateMatch[4])}${dateMatch[5]}${dateMatch[6]}`
+        : dateRangeStart;
+    }
   }
 
   let top15BuySum = 0;
@@ -185,9 +212,15 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
 
       if (bName && bName !== '無' && (bBuy > 0 || bNet > 0)) {
         const attr = classifyBrokerAttributes(bName, buyers.length);
-        const estBuyPrice = Number((avgBuyCost * (0.998 + (buyers.length % 5) * 0.001)).toFixed(2));
-        const estSellPrice = bSell > 0 ? Number((avgSellCost * 1.001).toFixed(2)) : 0;
-        const profitWan = Math.round((currentPrice - estBuyPrice) * bBuy * 0.1);
+        const estBuyPrice = Number(avgBuyCost.toFixed(2));
+        const estSellPrice = bSell > 0 ? Number(avgSellCost.toFixed(2)) : 0;
+        const profitMetrics = computeBrokerProfitMetrics(
+          bBuy,
+          bSell,
+          estBuyPrice,
+          estSellPrice,
+          currentPrice
+        );
         buyers.push({
           ...attr,
           buy: bBuy,
@@ -196,7 +229,7 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
           vol: bBuy + bSell,
           avgBuy: estBuyPrice,
           avgSell: estSellPrice,
-          profitWan,
+          ...profitMetrics,
           zco0Path: bHref
         });
       }
@@ -211,11 +244,15 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
       if (sName && sName !== '無' && (sSell > 0 || Math.abs(sNetRaw) > 0)) {
         const attr = classifyBrokerAttributes(sName, sellers.length + 15);
         const sNet = sNetRaw < 0 ? sNetRaw : -(sSell - sBuy);
-        const estSellPrice = Number(
-          (avgSellCost * (0.998 + (sellers.length % 5) * 0.001)).toFixed(2)
+        const estSellPrice = Number(avgSellCost.toFixed(2));
+        const estBuyPrice = sBuy > 0 ? Number(avgBuyCost.toFixed(2)) : 0;
+        const profitMetrics = computeBrokerProfitMetrics(
+          sBuy,
+          sSell,
+          estBuyPrice,
+          estSellPrice,
+          currentPrice
         );
-        const estBuyPrice = sBuy > 0 ? Number((avgBuyCost * 0.999).toFixed(2)) : 0;
-        const profitWan = Math.round((estSellPrice - currentPrice) * sSell * 0.1);
         sellers.push({
           ...attr,
           buy: sBuy,
@@ -224,7 +261,7 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
           vol: sBuy + sSell,
           avgBuy: estBuyPrice,
           avgSell: estSellPrice,
-          profitWan,
+          ...profitMetrics,
           zco0Path: sHref
         });
       }
@@ -269,6 +306,7 @@ export function parseMoneyDjSingleBrokerHistoryHtml(html, kline = []) {
   };
 
   const byDate = {};
+  let latestBrokerDateKey = '';
   const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   let rowMatch;
   while ((rowMatch = rowRegex.exec(html)) !== null) {
@@ -279,8 +317,7 @@ export function parseMoneyDjSingleBrokerHistoryHtml(html, kline = []) {
       if (!dm) continue;
       const yyyy = Number(dm[1]) < 1911 ? String(Number(dm[1]) + 1911) : dm[1];
       const dateKey = `${yyyy}/${dm[2]}/${dm[3]}`;
-      // zco0 欄位：日期 | 買進(張) | 賣出(張) | 買賣超(張) | 佔成交比重
-      // 注意部分版本單位為張或仟股，直接讀取數值
+      if (dateKey > latestBrokerDateKey) latestBrokerDateKey = dateKey;
       const buy = Math.round(parseNum(tds[1][1]));
       const sell = Math.round(parseNum(tds[2][1]));
       const net = Math.round(parseNum(tds[3][1]));
@@ -295,11 +332,27 @@ export function parseMoneyDjSingleBrokerHistoryHtml(html, kline = []) {
 
   let cumNet = 0;
   return kline.map(day => {
+    // 若該 K 棒日期比券商分點最新公布日還新（盤後分點尚未公布），該日留空 (null)
+    if ((latestBrokerDateKey && day.date > latestBrokerDateKey) || day.chipPending) {
+      return {
+        date: day.date,
+        buy: null,
+        sell: null,
+        net: null,
+        vol: null,
+        avgBuy: day.close,
+        avgSell: day.close,
+        profitWan: 0,
+        cumNet,
+        isRealDaily: true,
+        chipPending: true
+      };
+    }
     const rec = byDate[day.date] || { buy: 0, sell: 0, net: 0 };
     cumNet += rec.net;
     const avgBuy = Number((day.close * 0.999).toFixed(2));
     const avgSell = Number((day.close * 1.001).toFixed(2));
-    const profitWan = Math.round(((day.close - avgBuy) * rec.buy + (avgSell - day.close) * rec.sell) * 0.1);
+    const metrics = computeBrokerProfitMetrics(rec.buy, rec.sell, avgBuy, avgSell, day.close);
     return {
       date: day.date,
       buy: rec.buy,
@@ -308,7 +361,7 @@ export function parseMoneyDjSingleBrokerHistoryHtml(html, kline = []) {
       vol: rec.buy + rec.sell,
       avgBuy,
       avgSell,
-      profitWan,
+      ...metrics,
       cumNet,
       isRealDaily: true
     };
@@ -347,8 +400,9 @@ export async function fetchSingleBrokerHistoryFromPortal(zco0Path, kline = []) {
 
 // 瀏覽器端透過 CORS Proxy 抓取富邦/元大/宏遠券商網站真實分點買賣超日報表
 export async function fetchBrokerReportFromPortal(code, days = 1, currentPrice = 100) {
+  const rangeIdx = MONEYDJ_RANGE_MAP[days] || 1;
   for (const host of BROKER_PORTAL_HOSTS.slice(0, 2)) {
-    const targetUrl = `${host}/z/zc/zco/zco_${code}_${days}.djhtm`;
+    const targetUrl = `${host}/z/zc/zco/zco_${code}_${rangeIdx}.djhtm`;
     for (const buildProxyUrl of CORS_PROXIES) {
       try {
         const controller = new AbortController();
@@ -387,6 +441,7 @@ export function hydrateStockBrokerSeries(stock) {
   const vol1 = Math.max(1, lastDay.volume);
   const realBrokerReports = stock.realBrokerReports || {};
   const realBrokerDailyHistory = stock.realBrokerDailyHistory || {};
+  const rep1EndCompact = realBrokerReports[1]?.dateRangeEnd || '';
 
   const allKnownBrokers = [...BROKER_LIST];
   Object.values(realBrokerReports).forEach(rep => {
@@ -397,6 +452,22 @@ export function hydrateStockBrokerSeries(stock) {
       }
     });
   });
+
+  // 找出最後一個已公布分點籌碼的交易日索引；若最新 K 棒日期超過分點日報表日期，將最新 K 棒的 mainNet 留空 (null)
+  let lastPublishedIdx = kline.length - 1;
+  while (lastPublishedIdx > 0 && kline[lastPublishedIdx]?.chipPending) {
+    lastPublishedIdx--;
+  }
+  if (rep1EndCompact) {
+    const foundIdx = kline.findIndex(d => d.compactDate === rep1EndCompact);
+    if (foundIdx !== -1) {
+      lastPublishedIdx = foundIdx;
+      for (let i = foundIdx + 1; i < kline.length; i++) {
+        kline[i].mainNet = null;
+        kline[i].chipPending = true;
+      }
+    }
+  }
 
   const brokerSeries = {};
   allKnownBrokers.forEach((broker, bIdx) => {
@@ -426,9 +497,31 @@ export function hydrateStockBrokerSeries(stock) {
     const net20Avg = real20D ? Math.round((real20D.net - (real10D?.net || 0)) / 10) : null;
 
     brokerSeries[broker.id] = kline.map((day, dIdx) => {
-      const fromEnd = kline.length - 1 - dIdx;
+      if (dIdx > lastPublishedIdx || day.chipPending) {
+        return {
+          date: day.date,
+          buy: null,
+          sell: null,
+          net: null,
+          vol: null,
+          avgBuy: day.close,
+          avgSell: day.close,
+          profitWan: 0,
+          cumNet,
+          chipPending: true
+        };
+      }
+
+      const fromEnd = lastPublishedIdx - dIdx;
       if (fromEnd === 0 && latestReal1D) {
         cumNet += latestReal1D.net;
+        const metrics = computeBrokerProfitMetrics(
+          latestReal1D.buy,
+          latestReal1D.sell,
+          latestReal1D.avgBuy,
+          latestReal1D.avgSell,
+          day.close
+        );
         return {
           date: day.date,
           buy: latestReal1D.buy,
@@ -437,7 +530,7 @@ export function hydrateStockBrokerSeries(stock) {
           vol: latestReal1D.vol,
           avgBuy: latestReal1D.avgBuy,
           avgSell: latestReal1D.avgSell,
-          profitWan: latestReal1D.profitWan,
+          ...metrics,
           cumNet
         };
       }
@@ -449,8 +542,8 @@ export function hydrateStockBrokerSeries(stock) {
 
       const weight =
         broker.type === '外資'
-          ? Math.abs(day.foreignNet) / (vol1 * 0.4 + 50)
-          : Math.abs(day.mainNet) / (vol1 * 0.5 + 50);
+          ? Math.abs(day.foreignNet || 0) / (vol1 * 0.4 + 50)
+          : Math.abs(day.mainNet || 0) / (vol1 * 0.5 + 50);
       const baseLots = Math.max(
         1,
         Math.round(day.volume * 0.02 * (0.4 + Math.min(2.0, weight)) * ((bIdx % 5) * 0.2 + 0.5))
@@ -463,7 +556,8 @@ export function hydrateStockBrokerSeries(stock) {
         sell = buy - net;
       } else {
         const isBuyer =
-          (day.mainNet >= 0 && bIdx % 2 === 0) || (day.foreignNet > 0 && broker.type === '外資');
+          ((day.mainNet || 0) >= 0 && bIdx % 2 === 0) ||
+          ((day.foreignNet || 0) > 0 && broker.type === '外資');
         buy = isBuyer ? Math.round(baseLots * 1.3) : Math.round(baseLots * 0.7);
         sell = isBuyer ? Math.round(baseLots * 0.7) : Math.round(baseLots * 1.3);
         net = buy - sell;
@@ -472,7 +566,7 @@ export function hydrateStockBrokerSeries(stock) {
       cumNet += net;
       const avgBuy = Number((day.close * 0.998).toFixed(2));
       const avgSell = Number((day.close * 1.002).toFixed(2));
-      const profitWan = Math.round(((day.close - avgBuy) * buy + (avgSell - day.close) * sell) * 0.1);
+      const metrics = computeBrokerProfitMetrics(buy, sell, avgBuy, avgSell, day.close);
       return {
         date: day.date,
         buy,
@@ -481,7 +575,7 @@ export function hydrateStockBrokerSeries(stock) {
         vol: buy + sell,
         avgBuy,
         avgSell,
-        profitWan,
+        ...metrics,
         cumNet
       };
     });
@@ -555,10 +649,10 @@ export async function fetchPrebuiltCloudSnapshot() {
         const merged = localVer
           ? {
               ...s,
-              realBrokerReports: { ...(s.realBrokerReports || {}), ...(localVer.realBrokerReports || {}) },
+              realBrokerReports: { ...(localVer.realBrokerReports || {}), ...(s.realBrokerReports || {}) },
               realBrokerDailyHistory: {
-                ...(s.realBrokerDailyHistory || {}),
-                ...(localVer.realBrokerDailyHistory || {})
+                ...(localVer.realBrokerDailyHistory || {}),
+                ...(s.realBrokerDailyHistory || {})
               },
               isUserCached: Boolean(localVer.isUserCached)
             }
@@ -638,14 +732,15 @@ async function resolveStockBasicInfo(code, fallbackStock = null, token = '') {
 }
 
 function calcConsecutiveDays(values) {
-  if (!values || values.length === 0) return 0;
-  const last = values[values.length - 1];
+  const valid = (values || []).filter(v => v !== null && v !== undefined && Number.isFinite(v));
+  if (valid.length === 0) return 0;
+  const last = valid[valid.length - 1];
   if (last === 0) return 0;
   const isPositive = last > 0;
   let streak = 0;
-  for (let i = values.length - 1; i >= 0; i--) {
-    if (isPositive && values[i] > 0) streak++;
-    else if (!isPositive && values[i] < 0) streak--;
+  for (let i = valid.length - 1; i >= 0; i--) {
+    if (isPositive && valid[i] > 0) streak++;
+    else if (!isPositive && valid[i] < 0) streak--;
     else break;
   }
   return streak;
@@ -664,6 +759,7 @@ function classifyCandleType(open, high, low, close) {
 }
 
 // 抓取單一股票最新正式資料（結合 FinMind 公開 API + 富邦/元大券商網站分點日報表 + 外資真實持股率）
+// 若最新交易日已有股價與成交量、但盤後籌碼尚未公布，K線立即顯示最新K棒與成交量，下方未公布籌碼自動留空 (null)
 export async function fetchOfficialStockData(
   code,
   fallbackStock = null,
@@ -764,6 +860,9 @@ export async function fetchOfficialStockData(
   let foreignHoldPct = Number(((foreignHold / capitalShares) * 100).toFixed(2));
   let trustHold = Math.round(capitalShares * ((fallbackStock?.trustPct || 5) / 100));
   let cumDealer = 0;
+  let cumRetailNet = 0;
+  let lastValidMarginBal = fallbackStock?.kline?.[0]?.marginBal || 2500;
+  let lastValidShortBal = fallbackStock?.kline?.[0]?.shortBal || 300;
   let kVal = 50;
   let dVal = 50;
 
@@ -779,31 +878,50 @@ export async function fetchOfficialStockData(
     const changePct = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
     const volumeLots = Math.max(1, Math.round((Number(row.Trading_Volume) || 0) / 1000));
 
-    const inst = instByDate[row.date] || { foreign: 0, trust: 0, dealer: 0 };
-    const foreignNet = inst.foreign;
-    const trustNet = inst.trust;
-    const dealerNet = inst.dealer;
-    // 三大法人合計買賣超作為歷史基礎主力買賣超，最新交易日若抓到真實前15大分點則以分點差額覆寫
-    const mainNet = Math.round(foreignNet + trustNet + dealerNet);
+    const hasInst = Boolean(instByDate[row.date]);
+    const inst = instByDate[row.date];
+    const foreignNet = hasInst ? inst.foreign : null;
+    const trustNet = hasInst ? inst.trust : null;
+    const dealerNet = hasInst ? inst.dealer : null;
+    // 若當日盤後三大法人與分點尚未公布，設為 null (在副圖中留空，不填 0)
+    const mainNet = hasInst ? Math.round(foreignNet + trustNet + dealerNet) : null;
 
-    cumMainNet += mainNet;
+    if (mainNet !== null) {
+      cumMainNet += mainNet;
+    }
+
     const officialShare = shareByDate[row.date];
     if (officialShare && officialShare.foreignHoldPct > 0) {
       foreignHold = officialShare.foreignHoldLots;
       foreignHoldPct = officialShare.foreignHoldPct;
-    } else {
+    } else if (foreignNet !== null) {
       foreignHold = Math.max(100, foreignHold + foreignNet);
       foreignHoldPct = Number(((foreignHold / capitalShares) * 100).toFixed(2));
     }
 
-    trustHold = Math.max(50, trustHold + trustNet);
-    cumDealer += dealerNet;
+    if (trustNet !== null) {
+      trustHold = Math.max(50, trustHold + trustNet);
+    }
+    if (dealerNet !== null) {
+      cumDealer += dealerNet;
+    }
 
     const mg = marginByDate[row.date];
-    const marginBal = mg ? mg.marginBal : fallbackStock?.kline?.[idx]?.marginBal || 2500;
-    const marginDiff = mg ? mg.marginBal - mg.marginPrev : 0;
-    const shortBal = mg ? mg.shortBal : fallbackStock?.kline?.[idx]?.shortBal || 300;
-    const shortDiff = mg ? mg.shortBal - mg.shortPrev : 0;
+    const hasMargin = Boolean(mg);
+    if (hasMargin) {
+      lastValidMarginBal = mg.marginBal;
+      lastValidShortBal = mg.shortBal;
+    }
+    const marginBal = lastValidMarginBal;
+    const marginDiff = hasMargin ? mg.marginBal - mg.marginPrev : null;
+    const shortBal = lastValidShortBal;
+    const shortDiff = hasMargin ? mg.shortBal - mg.shortPrev : null;
+
+    const retailNet =
+      mainNet !== null ? Math.round(-mainNet * 0.55 + (marginDiff || 0)) : null;
+    if (retailNet !== null) {
+      cumRetailNet += retailNet;
+    }
 
     return {
       index: idx,
@@ -827,11 +945,14 @@ export async function fetchOfficialStockData(
       trustHoldPct: Number(((trustHold / capitalShares) * 100).toFixed(2)),
       dealerNet,
       cumDealer,
+      retailNet,
+      cumRetailNet,
       shortDiff,
       shortBal,
       shortHoldPct: Number(((shortBal / capitalShares) * 100).toFixed(2)),
       marginDiff,
-      marginBal
+      marginBal,
+      chipPending: !hasInst
     };
   });
 
@@ -869,16 +990,22 @@ export async function fetchOfficialStockData(
   }
 
   const lastDay = kline[kline.length - 1];
-  const last5 = kline.slice(-5);
-  const last10 = kline.slice(-10);
+  // 針對籌碼統計（主1/主5/主10、外資%、投信%），以最後一個已公布籌碼的交易日為基準
+  const publishedChipDays = kline.filter(d => d.mainNet !== null && d.mainNet !== undefined);
+  const lastChipDay = publishedChipDays[publishedChipDays.length - 1] || lastDay;
+  const lastChip5 = publishedChipDays.slice(-5);
+  const lastChip10 = publishedChipDays.slice(-10);
 
-  const vol1 = Math.max(1, lastDay.volume);
-  const vol5 = Math.max(1, last5.reduce((s, d) => s + d.volume, 0));
-  const vol10 = Math.max(1, last10.reduce((s, d) => s + d.volume, 0));
+  const publishedMarginDays = kline.filter(d => d.marginDiff !== null && d.marginDiff !== undefined);
+  const lastMarginDay = publishedMarginDays[publishedMarginDays.length - 1] || lastDay;
 
-  let main1 = Math.round((lastDay.mainNet / vol1) * 100);
-  let main5 = Math.round((last5.reduce((s, d) => s + d.mainNet, 0) / vol5) * 100);
-  let main10 = Math.round((last10.reduce((s, d) => s + d.mainNet, 0) / vol10) * 100);
+  const volChip1 = Math.max(1, lastChipDay.volume);
+  const volChip5 = Math.max(1, lastChip5.reduce((s, d) => s + d.volume, 0));
+  const volChip10 = Math.max(1, lastChip10.reduce((s, d) => s + d.volume, 0));
+
+  let main1 = Math.round(((lastChipDay.mainNet || 0) / volChip1) * 100);
+  let main5 = Math.round((lastChip5.reduce((s, d) => s + (d.mainNet || 0), 0) / volChip5) * 100);
+  let main10 = Math.round((lastChip10.reduce((s, d) => s + (d.mainNet || 0), 0) / volChip10) * 100);
 
   // 若啟用券商分點網站抓取，從富邦/元大/宏遠券商網站抓取真實買賣超前15名分點
   const realBrokerReports = { ...(fallbackStock?.realBrokerReports || {}) };
@@ -886,15 +1013,21 @@ export async function fetchOfficialStockData(
 
   if (includeBrokerPortal) {
     const [rep1, rep5, rep10, rep20] = await Promise.all([
-      fetchBrokerReportFromPortal(code, 1, lastDay.close),
-      fetchBrokerReportFromPortal(code, 5, lastDay.close),
-      fetchBrokerReportFromPortal(code, 10, lastDay.close),
-      fetchBrokerReportFromPortal(code, 20, lastDay.close)
+      fetchBrokerReportFromPortal(code, 1, lastChipDay.close),
+      fetchBrokerReportFromPortal(code, 5, lastChipDay.close),
+      fetchBrokerReportFromPortal(code, 10, lastChipDay.close),
+      fetchBrokerReportFromPortal(code, 20, lastChipDay.close)
     ]);
     if (rep1) {
+      // 對齊分點報表實際日期之收盤價與成交量
+      const rep1Bar =
+        (rep1.dateRangeEnd && kline.find(d => d.compactDate === rep1.dateRangeEnd)) ||
+        lastChipDay;
+      const rep1Vol = Math.max(1, rep1Bar.volume);
       realBrokerReports[1] = rep1;
-      main1 = Math.round(((rep1.top15BuySum + rep1.top15SellSum) / vol1) * 100);
-      lastDay.mainNet = rep1.top15BuySum + rep1.top15SellSum;
+      main1 = Math.round(((rep1.top15BuySum + rep1.top15SellSum) / rep1Vol) * 100);
+      rep1Bar.mainNet = rep1.top15BuySum + rep1.top15SellSum;
+      rep1Bar.chipPending = false;
       // 同步抓取買超第1名分點的過去60天真實逐日買賣超
       const topBuyer = rep1.buyers?.[0];
       if (topBuyer?.zco0Path) {
@@ -904,11 +1037,11 @@ export async function fetchOfficialStockData(
     }
     if (rep5) {
       realBrokerReports[5] = rep5;
-      main5 = Math.round(((rep5.top15BuySum + rep5.top15SellSum) / vol5) * 100);
+      main5 = Math.round(((rep5.top15BuySum + rep5.top15SellSum) / volChip5) * 100);
     }
     if (rep10) {
       realBrokerReports[10] = rep10;
-      main10 = Math.round(((rep10.top15BuySum + rep10.top15SellSum) / vol10) * 100);
+      main10 = Math.round(((rep10.top15BuySum + rep10.top15SellSum) / volChip10) * 100);
     }
     if (rep20) {
       realBrokerReports[20] = rep20;
@@ -969,12 +1102,12 @@ export async function fetchOfficialStockData(
     main1,
     main5,
     main10,
-    foreignPct: Math.round((lastDay.foreignNet / vol1) * 100),
-    trustPct: Math.round((lastDay.trustNet / vol1) * 100),
-    dealerPct: Math.round((lastDay.dealerNet / vol1) * 100),
+    foreignPct: Math.round(((lastChipDay.foreignNet || 0) / volChip1) * 100),
+    trustPct: Math.round(((lastChipDay.trustNet || 0) / volChip1) * 100),
+    dealerPct: Math.round(((lastChipDay.dealerNet || 0) / volChip1) * 100),
     dayTradePct: fallbackStock?.dayTradePct || 24,
-    marginPct: Math.round((lastDay.marginDiff / vol1) * 100),
-    shortPct: Math.round((lastDay.shortDiff / vol1) * 100),
+    marginPct: Math.round(((lastMarginDay.marginDiff || 0) / Math.max(1, lastMarginDay.volume)) * 100),
+    shortPct: Math.round(((lastMarginDay.shortDiff || 0) / Math.max(1, lastMarginDay.volume)) * 100),
     shortMarginRatio:
       lastDay.marginBal > 0
         ? Number(((lastDay.shortBal / lastDay.marginBal) * 100).toFixed(1))
@@ -1004,7 +1137,8 @@ export async function fetchOfficialStockData(
     realBrokerDailyHistory,
     isLiveSynced: true,
     hasRealBrokerReport: Boolean(realBrokerReports[1]),
-    latestTradeDate: lastDay.date
+    latestTradeDate: lastDay.date,
+    latestChipDate: lastChipDay.date
   });
 
   // 自動儲存至瀏覽器端持久化快取，下次開啟或重新整理免重抓秒開
@@ -1012,3 +1146,233 @@ export async function fetchOfficialStockData(
 
   return builtStock;
 }
+
+// 抓取台股加權指數 (TAIEX) 與台指期 (TX) 最新 4 萬點級別正式 K 線、布林通道與大盤三大法人/散戶/融資融券籌碼
+export async function fetchOfficialTaiexData(token = '', fallbackTaiex = null) {
+  const startDate = '2024-09-01';
+  const [priceRows, instRows, marginRows, txRows] = await Promise.all([
+    queryFinMind('TaiwanStockPrice', 'TAIEX', startDate, token),
+    queryFinMind('TaiwanStockTotalInstitutionalInvestors', 'TAIEX', startDate, token).catch(() => []),
+    queryFinMind('TaiwanStockTotalMarginPurchaseShortSale', 'TAIEX', startDate, token).catch(() => []),
+    queryFinMind('TaiwanFuturesDaily', 'TX', '2026-10-01', token).catch(() => [])
+  ]);
+
+  if (!priceRows || priceRows.length < 15) {
+    return fallbackTaiex || generateTaiexDataset();
+  }
+
+  const recentPrices = priceRows.slice(-75);
+
+  // 大盤三大法人買賣超 (單位換算為「億元」：原始為元，除以 1e8)
+  const instByDate = {};
+  instRows.forEach(r => {
+    if (!instByDate[r.date]) {
+      instByDate[r.date] = { foreign: 0, trust: 0, dealer: 0, total: 0 };
+    }
+    const netYi = Number((((Number(r.buy) || 0) - (Number(r.sell) || 0)) / 1e8).toFixed(2));
+    if (r.name === 'Foreign_Investor' || r.name === 'Foreign_Dealer_Self') {
+      instByDate[r.date].foreign = Number((instByDate[r.date].foreign + netYi).toFixed(2));
+    } else if (r.name === 'Investment_Trust') {
+      instByDate[r.date].trust = Number((instByDate[r.date].trust + netYi).toFixed(2));
+    } else if (r.name?.startsWith('Dealer')) {
+      instByDate[r.date].dealer = Number((instByDate[r.date].dealer + netYi).toFixed(2));
+    } else if (r.name === 'total') {
+      instByDate[r.date].total = netYi;
+    }
+  });
+
+  // 大盤融資餘額(億元)與融券餘額(仟張)
+  const marginByDate = {};
+  marginRows.forEach(r => {
+    if (!marginByDate[r.date]) {
+      marginByDate[r.date] = {};
+    }
+    if (r.name === 'MarginPurchaseMoney') {
+      const todayYi = Math.round((Number(r.TodayBalance) || 0) / 1e8);
+      const yesYi = Math.round((Number(r.YesBalance) || 0) / 1e8);
+      marginByDate[r.date].marginBal = todayYi;
+      marginByDate[r.date].marginDiff = todayYi - yesYi;
+    } else if (r.name === 'ShortSale') {
+      const todayK = Math.round((Number(r.TodayBalance) || 0) / 1000);
+      const yesK = Math.round((Number(r.YesBalance) || 0) / 1000);
+      marginByDate[r.date].shortBal = todayK;
+      marginByDate[r.date].shortDiff = todayK - yesK;
+    }
+  });
+
+  let cumMainNet = 0;
+  let foreignHold = 8500;
+  let trustHold = 3200;
+  let cumDealer = 0;
+  let cumRetailNet = 0;
+  let lastMarginBal = 5340;
+  let lastShortBal = 245;
+  let kVal = 50;
+  let dVal = 50;
+
+  const kline = recentPrices.map((row, idx) => {
+    const [yyyy, mm, dd] = row.date.split('-');
+    const close = Number(Number(row.close).toFixed(2));
+    const open = Number(Number(row.open).toFixed(2));
+    const high = Number(Number(row.max).toFixed(2));
+    const low = Number(Number(row.min).toFixed(2));
+    const prevClose =
+      idx > 0 ? Number(recentPrices[idx - 1].close) : close - Number(row.spread || 0);
+    const change = Number((close - prevClose).toFixed(2));
+    const changePct = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+    // 大盤成交金額(億元)
+    const volumeYi = Math.max(
+      100,
+      Math.round((Number(row.Trading_money) || Number(row.Trading_Volume) * 50 || 0) / 1e8)
+    );
+
+    const hasInst = Boolean(instByDate[row.date]);
+    const inst = instByDate[row.date];
+    const foreignNet = hasInst ? Math.round(inst.foreign) : null;
+    const trustNet = hasInst ? Math.round(inst.trust) : null;
+    const dealerNet = hasInst ? Math.round(inst.dealer) : null;
+    const mainNet = hasInst
+      ? Math.round(inst.total || inst.foreign + inst.trust + inst.dealer)
+      : null;
+
+    if (mainNet !== null) cumMainNet += mainNet;
+    if (foreignNet !== null) foreignHold += foreignNet;
+    if (trustNet !== null) trustHold += trustNet;
+    if (dealerNet !== null) cumDealer += dealerNet;
+
+    const mg = marginByDate[row.date];
+    const hasMargin = Boolean(mg && mg.marginBal !== undefined);
+    if (hasMargin) {
+      lastMarginBal = mg.marginBal;
+      if (mg.shortBal !== undefined) lastShortBal = mg.shortBal;
+    }
+    const marginBal = lastMarginBal;
+    const marginDiff = hasMargin ? mg.marginDiff : null;
+    const shortBal = lastShortBal;
+    const shortDiff = mg && mg.shortDiff !== undefined ? mg.shortDiff : null;
+
+    // 大盤散戶多空動能指標(億元)：散戶融資增減與三大法人對作承接力道
+    const retailNet =
+      mainNet !== null ? Math.round(-mainNet * 0.55 + (marginDiff || 0)) : null;
+    if (retailNet !== null) cumRetailNet += retailNet;
+
+    return {
+      index: idx,
+      date: `${yyyy}/${mm}/${dd}`,
+      compactDate: `${yyyy}${mm}${dd}`,
+      shortDate: `${mm}/${dd}`,
+      open,
+      high,
+      low,
+      close,
+      change,
+      changePct,
+      volume: volumeYi,
+      mainNet,
+      cumMainNet,
+      foreignNet,
+      foreignHold,
+      foreignHoldPct: 41.8,
+      trustNet,
+      trustHold,
+      trustHoldPct: 12.6,
+      dealerNet,
+      cumDealer,
+      retailNet,
+      cumRetailNet,
+      shortDiff,
+      shortBal,
+      shortHoldPct: 4.5,
+      marginDiff,
+      marginBal,
+      chipPending: !hasInst
+    };
+  });
+
+  for (let i = 0; i < kline.length; i++) {
+    const slice5 = kline.slice(Math.max(0, i - 4), i + 1);
+    const slice10 = kline.slice(Math.max(0, i - 9), i + 1);
+    const slice20 = kline.slice(Math.max(0, i - 19), i + 1);
+    const slice60 = kline.slice(Math.max(0, i - 59), i + 1);
+    const ma5 = slice5.reduce((s, d) => s + d.close, 0) / slice5.length;
+    const ma10 = slice10.reduce((s, d) => s + d.close, 0) / slice10.length;
+    const ma20 = slice20.reduce((s, d) => s + d.close, 0) / slice20.length;
+    const ma60 = slice60.reduce((s, d) => s + d.close, 0) / slice60.length;
+    const variance = slice20.reduce((s, d) => s + Math.pow(d.close - ma20, 2), 0) / slice20.length;
+    const stdDev = Math.sqrt(variance);
+    const slice9 = kline.slice(Math.max(0, i - 8), i + 1);
+    const high9 = Math.max(...slice9.map(d => d.high));
+    const low9 = Math.min(...slice9.map(d => d.low));
+    const rsv = high9 === low9 ? 50 : ((kline[i].close - low9) / (high9 - low9)) * 100;
+    kVal = (2 / 3) * kVal + (1 / 3) * rsv;
+    dVal = (2 / 3) * dVal + (1 / 3) * kVal;
+
+    kline[i].ma5 = Number(ma5.toFixed(2));
+    kline[i].ma10 = Number(ma10.toFixed(2));
+    kline[i].ma20 = Number(ma20.toFixed(2));
+    kline[i].ma60 = Number(ma60.toFixed(2));
+    kline[i].bollUpper = Number((ma20 + 2 * stdDev).toFixed(2));
+    kline[i].bollLower = Number((ma20 - 2 * stdDev).toFixed(2));
+    kline[i].k = Number(kVal.toFixed(2));
+    kline[i].d = Number(dVal.toFixed(2));
+  }
+
+  const lastDay = kline[kline.length - 1];
+  const chipDays = kline.filter(d => d.mainNet !== null);
+  const lastChipDay = chipDays[chipDays.length - 1] || lastDay;
+
+  // 解析台指期 (TX) 最新近月報價
+  let futuresPrice = Math.round(lastDay.close);
+  let futuresChange = Math.round(lastDay.change);
+  if (Array.isArray(txRows) && txRows.length > 0) {
+    const posRows = txRows.filter(
+      r => r.trading_session === 'position' && String(r.contract_date || '').length === 6 && Number(r.close) > 10000
+    );
+    if (posRows.length > 0) {
+      const latestTxDate = posRows[posRows.length - 1].date;
+      const sameDayContracts = posRows
+        .filter(r => r.date === latestTxDate)
+        .sort((a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0));
+      const mainContract = sameDayContracts[0];
+      if (mainContract) {
+        futuresPrice = Math.round(Number(mainContract.settlement_price || mainContract.close));
+        futuresChange = Math.round(Number(mainContract.spread || lastDay.change));
+      }
+    }
+  }
+  const futuresDiff = Math.round(futuresPrice - lastDay.close);
+
+  const vol1 = Math.max(1, lastChipDay.volume);
+  const vol5 = Math.max(1, chipDays.slice(-5).reduce((s, d) => s + d.volume, 0));
+  const vol10 = Math.max(1, chipDays.slice(-10).reduce((s, d) => s + d.volume, 0));
+
+  const main1 = Math.round(((lastChipDay.mainNet || 0) / vol1) * 100);
+  const main5 = Math.round((chipDays.slice(-5).reduce((s, d) => s + (d.mainNet || 0), 0) / vol5) * 100);
+  const main10 = Math.round((chipDays.slice(-10).reduce((s, d) => s + (d.mainNet || 0), 0) / vol10) * 100);
+
+  return {
+    ...(fallbackTaiex || generateTaiexDataset()),
+    code: 'TAIEX',
+    name: '加權指數',
+    isMarketIndex: true,
+    market: '大盤指數',
+    industry: '台股大盤加權指數 (單位:點/億元)',
+    price: lastDay.close,
+    change: lastDay.change,
+    changePct: lastDay.changePct,
+    futuresPrice,
+    futuresChange,
+    futuresDiff,
+    volume: lastDay.volume,
+    mainConsec: calcConsecutiveDays(kline.map(d => d.mainNet)),
+    foreignConsec: calcConsecutiveDays(kline.map(d => d.foreignNet)),
+    trustConsec: calcConsecutiveDays(kline.map(d => d.trustNet)),
+    main1,
+    main5,
+    main10,
+    kline,
+    momentum: computeStockMomentum(kline),
+    latestTradeDate: lastDay.date
+  };
+}
+
