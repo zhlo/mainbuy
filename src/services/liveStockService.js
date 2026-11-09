@@ -97,24 +97,100 @@ export const TW_STOCK_DIRECTORY = {
 
 let cachedTwStockInfoMap = null;
 
-// 根據券商名稱自動判別外資 / 官股 / 隔日沖 / 神秘分點屬性
-export function classifyBrokerAttributes(brokerName, idx = 0) {
+// 根據券商席次 DNA 與量化交易行為（當沖率、留倉率）精確歸類券商屬性標籤
+export function classifyBrokerAttributes(brokerName, idx = 0, metrics = null) {
   const name = (brokerName || '').trim();
   const isForeign =
-    /美林|摩根|瑞銀|高盛|麥格理|野村|花旗|匯立|里昂|大和|法銀|德意志|星展|滙豐/.test(name);
-  const isGov = /臺銀|台銀|兆豐|第一金|華南永昌|合庫|彰銀|土銀|臺灣企銀|台企銀/.test(name);
-  const isDayTrade =
-    /凱基-台北|凱基台北|富邦-建國|富邦建國|凱基-新竹|凱基新竹|元大-土城|群益金鼎-大安|凱基-松山|富邦-嘉義|統一-敦南|美林/.test(
+    /美林|摩根|瑞銀|高盛|麥格理|野村|花旗|匯立|里昂|大和|法銀|德意志|星展|滙豐|法巴|巴克萊/.test(
       name
     );
-  const isMystery = /城中|中山|城北|敦南|仁愛|忠孝|總公司/.test(name) || isForeign || idx < 8;
+  const isGov =
+    /臺銀|台銀|兆豐|第一金|華南永昌|合庫|合作金庫|彰銀|彰化|土銀|土地銀行|臺灣企銀|台企銀/.test(
+      name
+    );
+  // 知名隔日沖大戶席次 (鎖漲停、次日早盤大量倒貨)
+  const isKnownDayTrade =
+    /凱基-台北|凱基台北|富邦-建國|富邦建國|元大-虎尾|元大虎尾|凱基-新竹|凱基新竹|統一-城中|國泰-敦南|凱基-松山|富邦-嘉義|群益金鼎-大安|元大-土城|元大-大安|統一-敦南|美林/.test(
+      name
+    );
+  // 知名散戶集散席次 (券商總公司、數位分點、網路下單分公司)
+  const isKnownRetail =
+    /總公司|台北總|數位|數位分公司|網路|元大$|凱基$|富邦$|國泰$|永豐金$|玉山$|台新$|群益金鼎$/.test(
+      name
+    );
+  // 知名神秘與地緣主力 (董監內部人、特定關鍵大戶、竹科/南科地緣席次)
+  const isKnownMystery =
+    /城中|中山|城北|敦南|仁愛|忠孝|安和|新竹|竹科|台南|南科|台中|員林/.test(name);
+
+  // 計算量化當沖率 (scalpRate) 與 留倉率 (holdRate)
+  let scalpRate = 0;
+  let holdRate = 0;
+  if (metrics && (metrics.buy > 0 || metrics.sell > 0)) {
+    const totalVol = (metrics.buy || 0) + (metrics.sell || 0);
+    const matched = Math.min(metrics.buy || 0, metrics.sell || 0);
+    const net = Math.abs((metrics.buy || 0) - (metrics.sell || 0));
+    scalpRate = totalVol > 0 ? Number(((2 * matched / totalVol) * 100).toFixed(1)) : 0;
+    holdRate = totalVol > 0 ? Number(((net / totalVol) * 100).toFixed(1)) : 0;
+  }
+
+  // 判定主要分類與徽章
+  let type = '本土主力';
+  let badgeLabel = '主力分點';
+  let badgeClass = 'tag-main';
+  let desc = '本土常規主力分點，具資金規模與一定進出影響力';
+
+  if (isForeign) {
+    type = '外資';
+    badgeLabel = '🌐 外資';
+    badgeClass = 'tag-foreign';
+    desc = '國際外資券商席次，資金部位龐大，具波段連續性與被動指數調節影響力';
+  } else if (isGov) {
+    type = '官股行庫';
+    badgeLabel = '🏛️ 官股';
+    badgeClass = 'tag-gov';
+    desc = '八大公股行庫（政策護盤指標），常呈現逆勢操作（大跌護盤買進、大漲順勢調節）';
+  } else if (isKnownDayTrade || (scalpRate >= 70 && holdRate < 30)) {
+    type = '隔日沖主力';
+    badgeLabel = '🔥 隔日沖';
+    badgeClass = 'tag-daytrade';
+    desc = `隔日沖大戶（當沖沖銷率 ${scalpRate}%），專精於尾盤拉抬鎖漲停、次日早盤大量倒貨結算`;
+  } else if (scalpRate >= 75) {
+    type = '當沖大戶';
+    badgeLabel = '⚡ 當沖大戶';
+    badgeClass = 'tag-scalp';
+    desc = `高頻當沖大戶（沖銷率 ${scalpRate}%），盤中大量洗量沖銷、極少或不留倉`;
+  } else if (isKnownRetail) {
+    type = '散戶集散';
+    badgeLabel = '👥 散戶集散';
+    badgeClass = 'tag-retail';
+    desc = '散戶核心集散券商（券商總公司或數位網路分公司），多為零碎散戶散單聚集處';
+  } else if (isKnownMystery || idx < 4) {
+    type = '神秘券商';
+    badgeLabel = '🕵️ 神秘券商';
+    badgeClass = 'tag-mystery';
+    desc = '神秘/地緣/內部人關鍵分點，常於股價起漲前低調持續鎖碼或低檔重手承接';
+  } else if (holdRate >= 65) {
+    type = '波段主力';
+    badgeLabel = '💎 波段主力';
+    badgeClass = 'tag-swing';
+    desc = `波段鎖碼主力（留倉率 ${holdRate}%），連續性偏多買進建倉、志在拉抬大波段波幅`;
+  }
 
   return {
     id: `real-${name.replace(/\s+/g, '')}`,
     name,
-    type: isForeign ? '外資' : isGov ? '官股行庫' : isDayTrade ? '隔日沖主力' : '本土主力',
-    isMystery,
-    isDayTrade,
+    type,
+    badgeLabel,
+    badgeClass,
+    desc,
+    scalpRate,
+    holdRate,
+    isMystery: type === '神秘券商' || isKnownMystery,
+    isDayTrade: type === '隔日沖主力' || isKnownDayTrade,
+    isSwing: type === '波段主力' || holdRate >= 65,
+    isScalp: type === '當沖大戶' || scalpRate >= 75,
+    isRetail: type === '散戶集散' || isKnownRetail,
+    isForeign,
     isGov,
     region: isForeign ? '外資法人' : isGov ? '八大行庫' : '主力分點'
   };
@@ -211,7 +287,7 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
       const bNet = parseNum(tdMatches[3][1]);
 
       if (bName && bName !== '無' && (bBuy > 0 || bNet > 0)) {
-        const attr = classifyBrokerAttributes(bName, buyers.length);
+        const attr = classifyBrokerAttributes(bName, buyers.length, { buy: bBuy, sell: bSell, net: bNet });
         const estBuyPrice = Number(avgBuyCost.toFixed(2));
         const estSellPrice = bSell > 0 ? Number(avgSellCost.toFixed(2)) : 0;
         const profitMetrics = computeBrokerProfitMetrics(
@@ -242,8 +318,8 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
       const sNetRaw = parseNum(tdMatches[8][1]);
 
       if (sName && sName !== '無' && (sSell > 0 || Math.abs(sNetRaw) > 0)) {
-        const attr = classifyBrokerAttributes(sName, sellers.length + 15);
         const sNet = sNetRaw < 0 ? sNetRaw : -(sSell - sBuy);
+        const attr = classifyBrokerAttributes(sName, sellers.length + 15, { buy: sBuy, sell: sSell, net: sNet });
         const estSellPrice = Number(avgSellCost.toFixed(2));
         const estBuyPrice = sBuy > 0 ? Number(avgBuyCost.toFixed(2)) : 0;
         const profitMetrics = computeBrokerProfitMetrics(

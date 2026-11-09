@@ -1,33 +1,127 @@
 // MainBuy 主力雷達 — 台股主力、分點、投信、外資完整資料庫與動能轉折計算引擎
 
 export const BROKER_LIST = [
-  { id: 'esun-chengzhong', name: '玉山-城中', type: '神秘', isMystery: true, isDayTrade: false, region: '台北市中正區' },
-  { id: 'merrill', name: '美林', type: '外資', isMystery: true, isDayTrade: false, region: '台北市信義區' },
-  { id: 'morgan-stanley', name: '台灣摩根士丹利', type: '外資', isMystery: true, isDayTrade: false, region: '台北市信義區' },
-  { id: 'jp-morgan', name: '摩根大通', type: '外資', isMystery: true, isDayTrade: false, region: '台北市信義區' },
-  { id: 'yuanta-main', name: '元大', type: '本土龍頭', isMystery: true, isDayTrade: false, region: '台北市中山區' },
-  { id: 'kgi-main', name: '凱基', type: '本土主力', isMystery: true, isDayTrade: false, region: '台北市中山區' },
-  { id: 'kgi-taipei', name: '凱基-台北', type: '隔日沖主力', isMystery: true, isDayTrade: true, region: '台北市中山區' },
-  { id: 'ubs', name: '新加坡商瑞銀', type: '外資', isMystery: true, isDayTrade: false, region: '台北市信義區' },
-  { id: 'capital-zhongshan', name: '群益金鼎-中山', type: '神秘', isMystery: true, isDayTrade: false, region: '台北市中山區' },
-  { id: 'fubon-main', name: '富邦', type: '本土主力', isMystery: true, isDayTrade: false, region: '台北市大安區' },
-  { id: 'sinopac', name: '永豐金', type: '本土主力', isMystery: false, isDayTrade: false, region: '台北市中正區' },
-  { id: 'oriental', name: '亞東', type: '集團券商', isMystery: false, isDayTrade: false, region: '新北市板橋區' },
-  { id: 'goldman', name: '美商高盛', type: '外資', isMystery: false, isDayTrade: false, region: '台北市信義區' },
-  { id: 'jihsun', name: '日盛', type: '本土分點', isMystery: false, isDayTrade: false, region: '台北市中山區' },
-  { id: 'sinopac-banqiao', name: '永豐金-板橋', type: '地緣分點', isMystery: false, isDayTrade: false, region: '新北市板橋區' },
-  { id: 'fubon-jianguo', name: '富邦-建國', type: '隔日沖主力', isMystery: false, isDayTrade: true, region: '台北市大安區' },
-  { id: 'yuanta-chengbei', name: '元大-城北', type: '波段主力', isMystery: true, isDayTrade: false, region: '台北市大同區' },
-  { id: 'kgi-hsinchu', name: '凱基-新竹', type: '竹科地緣', isMystery: false, isDayTrade: true, region: '新竹市東區' },
-  { id: 'yuanta-taichung', name: '元大-台中', type: '中台灣地緣', isMystery: true, isDayTrade: false, region: '台中市西屯區' },
-  { id: 'mega-main', name: '兆豐', type: '官股行庫', isMystery: false, isDayTrade: false, region: '台北市中正區', isGov: true },
-  { id: 'bot-main', name: '臺銀', type: '官股行庫', isMystery: false, isDayTrade: false, region: '台北市中正區', isGov: true },
-  { id: 'first-main', name: '第一金', type: '官股行庫', isMystery: false, isDayTrade: false, region: '台北市中正區', isGov: true },
-  { id: 'huanan', name: '華南永昌', type: '官股行庫', isMystery: false, isDayTrade: false, region: '台北市松山區', isGov: true },
-  { id: 'macquarie', name: '香港商麥格理', type: '外資', isMystery: false, isDayTrade: false, region: '台北市信義區' },
-  { id: 'nomura', name: '台灣野村', type: '外資', isMystery: false, isDayTrade: false, region: '台北市信義區' },
-  { id: 'fubon-hsinchu', name: '富邦-新竹', type: '竹科地緣', isMystery: true, isDayTrade: false, region: '新竹市東區' }
+  { id: 'esun-chengzhong', name: '玉山-城中', type: '神秘券商', badgeLabel: '🕵️ 神秘券商', badgeClass: 'tag-mystery', desc: '地緣內部人關鍵分點，常於股價起漲前低調持續鎖碼', isMystery: true, isDayTrade: false, region: '台北市中正區' },
+  { id: 'merrill', name: '美林', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '國際外資券商席次，資金部位龐大', isForeign: true, isMystery: true, isDayTrade: true, region: '台北市信義區' },
+  { id: 'morgan-stanley', name: '台灣摩根士丹利', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '外資龍頭券商席次', isForeign: true, isMystery: false, isDayTrade: false, region: '台北市信義區' },
+  { id: 'jp-morgan', name: '摩根大通', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '國際外資券商席次', isForeign: true, isMystery: false, isDayTrade: false, region: '台北市信義區' },
+  { id: 'yuanta-main', name: '元大', type: '散戶集散', badgeLabel: '👥 散戶集散', badgeClass: 'tag-retail', desc: '券商總公司散戶核心席次', isRetail: true, isMystery: false, isDayTrade: false, region: '台北市中山區' },
+  { id: 'kgi-main', name: '凱基', type: '散戶集散', badgeLabel: '👥 散戶集散', badgeClass: 'tag-retail', desc: '券商總公司席次', isRetail: true, isMystery: false, isDayTrade: false, region: '台北市中山區' },
+  { id: 'kgi-taipei', name: '凱基-台北', type: '隔日沖主力', badgeLabel: '🔥 隔日沖', badgeClass: 'tag-daytrade', desc: '知名隔日沖龍頭大戶席次，尾盤鎖漲停次日倒貨', isDayTrade: true, isMystery: false, region: '台北市中山區' },
+  { id: 'ubs', name: '新加坡商瑞銀', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '瑞士銀行外資席次', isForeign: true, isMystery: false, isDayTrade: false, region: '台北市信義區' },
+  { id: 'capital-zhongshan', name: '群益金鼎-中山', type: '神秘券商', badgeLabel: '🕵️ 神秘券商', badgeClass: 'tag-mystery', desc: '關鍵主力神祕分點', isMystery: true, isDayTrade: false, region: '台北市中山區' },
+  { id: 'fubon-main', name: '富邦', type: '散戶集散', badgeLabel: '👥 散戶集散', badgeClass: 'tag-retail', desc: '券商總公司席次', isRetail: true, isMystery: false, isDayTrade: false, region: '台北市大安區' },
+  { id: 'sinopac', name: '永豐金', type: '散戶集散', badgeLabel: '👥 散戶集散', badgeClass: 'tag-retail', desc: '券商總公司席次', isRetail: true, isMystery: false, isDayTrade: false, region: '台北市中正區' },
+  { id: 'oriental', name: '亞東', type: '波段主力', badgeLabel: '💎 波段主力', badgeClass: 'tag-swing', desc: '遠東集團集團關聯券商', isSwing: true, isMystery: false, isDayTrade: false, region: '新北市板橋區' },
+  { id: 'goldman', name: '美商高盛', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '國際外資席次', isForeign: true, isMystery: false, isDayTrade: false, region: '台北市信義區' },
+  { id: 'jihsun', name: '日盛', type: '本土分點', badgeLabel: '主力分點', badgeClass: 'tag-main', desc: '本土常規主力分點', isMystery: false, isDayTrade: false, region: '台北市中山區' },
+  { id: 'sinopac-banqiao', name: '永豐金-板橋', type: '地緣分點', badgeLabel: '🕵️ 神秘券商', badgeClass: 'tag-mystery', desc: '新北地緣分點', isMystery: true, isDayTrade: false, region: '新北市板橋區' },
+  { id: 'fubon-jianguo', name: '富邦-建國', type: '隔日沖主力', badgeLabel: '🔥 隔日沖', badgeClass: 'tag-daytrade', desc: '知名隔日沖大戶席次', isDayTrade: true, isMystery: false, region: '台北市大安區' },
+  { id: 'yuanta-chengbei', name: '元大-城北', type: '波段主力', badgeLabel: '💎 波段主力', badgeClass: 'tag-swing', desc: '波段鎖碼主力分點', isSwing: true, isMystery: true, isDayTrade: false, region: '台北市大同區' },
+  { id: 'kgi-hsinchu', name: '凱基-新竹', type: '隔日沖主力', badgeLabel: '🔥 隔日沖', badgeClass: 'tag-daytrade', desc: '竹科隔日沖大戶席次', isDayTrade: true, isMystery: false, region: '新竹市東區' },
+  { id: 'yuanta-taichung', name: '元大-台中', type: '波段主力', badgeLabel: '💎 波段主力', badgeClass: 'tag-swing', desc: '中台灣地緣波段主力', isSwing: true, isMystery: true, isDayTrade: false, region: '台中市西屯區' },
+  { id: 'mega-main', name: '兆豐', type: '官股行庫', badgeLabel: '🏛️ 官股', badgeClass: 'tag-gov', desc: '八大官股公營行庫', isGov: true, isMystery: false, isDayTrade: false, region: '台北市中正區' },
+  { id: 'bot-main', name: '臺銀', type: '官股行庫', badgeLabel: '🏛️ 官股', badgeClass: 'tag-gov', desc: '八大官股公營行庫', isGov: true, isMystery: false, isDayTrade: false, region: '台北市中正區' },
+  { id: 'first-main', name: '第一金', type: '官股行庫', badgeLabel: '🏛️ 官股', badgeClass: 'tag-gov', desc: '八大官股公營行庫', isGov: true, isMystery: false, isDayTrade: false, region: '台北市中正區' },
+  { id: 'huanan', name: '華南永昌', type: '官股行庫', badgeLabel: '🏛️ 官股', badgeClass: 'tag-gov', desc: '八大官股公營行庫', isGov: true, isMystery: false, isDayTrade: false, region: '台北市松山區' },
+  { id: 'macquarie', name: '香港商麥格理', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '國際外資席次', isForeign: true, isMystery: false, isDayTrade: false, region: '台北市信義區' },
+  { id: 'nomura', name: '台灣野村', type: '外資', badgeLabel: '🌐 外資', badgeClass: 'tag-foreign', desc: '國際外資席次', isForeign: true, isMystery: false, isDayTrade: false, region: '台北市信義區' },
+  { id: 'fubon-hsinchu', name: '富邦-新竹', type: '神秘券商', badgeLabel: '🕵️ 神秘券商', badgeClass: 'tag-mystery', desc: '竹科地緣特定分點', isMystery: true, isDayTrade: false, region: '新竹市東區' }
 ];
+
+// 根據券商席次 DNA 與量化交易行為（當沖率、留倉率）精確歸類券商屬性標籤
+export function classifyBrokerAttributes(brokerName, idx = 0, metrics = null) {
+  const name = (brokerName || '').trim();
+  const isForeign =
+    /美林|摩根|瑞銀|高盛|麥格理|野村|花旗|匯立|里昂|大和|法銀|德意志|星展|滙豐|法巴|巴克萊/.test(
+      name
+    );
+  const isGov =
+    /臺銀|台銀|兆豐|第一金|華南永昌|合庫|合作金庫|彰銀|彰化|土銀|土地銀行|臺灣企銀|台企銀/.test(
+      name
+    );
+  const isKnownDayTrade =
+    /凱基-台北|凱基台北|富邦-建國|富邦建國|元大-虎尾|元大虎尾|凱基-新竹|凱基新竹|統一-城中|國泰-敦南|凱基-松山|富邦-嘉義|群益金鼎-大安|元大-土城|元大-大安|統一-敦南|美林/.test(
+      name
+    );
+  const isKnownRetail =
+    /總公司|台北總|數位|數位分公司|網路|元大$|凱基$|富邦$|國泰$|永豐金$|玉山$|台新$|群益金鼎$/.test(
+      name
+    );
+  const isKnownMystery =
+    /城中|中山|城北|敦南|仁愛|忠孝|安和|新竹|竹科|台南|南科|台中|員林/.test(name);
+
+  let scalpRate = 0;
+  let holdRate = 0;
+  if (metrics && (metrics.buy > 0 || metrics.sell > 0)) {
+    const totalVol = (metrics.buy || 0) + (metrics.sell || 0);
+    const matched = Math.min(metrics.buy || 0, metrics.sell || 0);
+    const net = Math.abs((metrics.buy || 0) - (metrics.sell || 0));
+    scalpRate = totalVol > 0 ? Number(((2 * matched / totalVol) * 100).toFixed(1)) : 0;
+    holdRate = totalVol > 0 ? Number(((net / totalVol) * 100).toFixed(1)) : 0;
+  }
+
+  let type = '本土主力';
+  let badgeLabel = '主力分點';
+  let badgeClass = 'tag-main';
+  let desc = '本土常規主力分點，具資金規模與一定進出影響力';
+
+  if (isForeign) {
+    type = '外資';
+    badgeLabel = '🌐 外資';
+    badgeClass = 'tag-foreign';
+    desc = '國際外資券商席次，資金部位龐大，具波段連續性與被動指數調節影響力';
+  } else if (isGov) {
+    type = '官股行庫';
+    badgeLabel = '🏛️ 官股';
+    badgeClass = 'tag-gov';
+    desc = '八大公股行庫（政策護盤指標），常呈現逆勢操作（大跌護盤買進、大漲順勢調節）';
+  } else if (isKnownDayTrade || (scalpRate >= 70 && holdRate < 30)) {
+    type = '隔日沖主力';
+    badgeLabel = '🔥 隔日沖';
+    badgeClass = 'tag-daytrade';
+    desc = `隔日沖大戶（當沖沖銷率 ${scalpRate}%），專精於尾盤拉抬鎖漲停、次日早盤大量倒貨結算`;
+  } else if (scalpRate >= 75) {
+    type = '當沖大戶';
+    badgeLabel = '⚡ 當沖大戶';
+    badgeClass = 'tag-scalp';
+    desc = `高頻當沖大戶（沖銷率 ${scalpRate}%），盤中大量洗量沖銷、極少或不留倉`;
+  } else if (isKnownRetail) {
+    type = '散戶集散';
+    badgeLabel = '👥 散戶集散';
+    badgeClass = 'tag-retail';
+    desc = '散戶核心集散券商（券商總公司或數位網路分公司），多為零碎散戶散單聚集處';
+  } else if (isKnownMystery || idx < 4) {
+    type = '神秘券商';
+    badgeLabel = '🕵️ 神秘券商';
+    badgeClass = 'tag-mystery';
+    desc = '神秘/地緣/內部人關鍵分點，常於股價起漲前低調持續鎖碼或低檔重手承接';
+  } else if (holdRate >= 65) {
+    type = '波段主力';
+    badgeLabel = '💎 波段主力';
+    badgeClass = 'tag-swing';
+    desc = `波段鎖碼主力（留倉率 ${holdRate}%），連續性偏多買進建倉、志在拉抬大波段波幅`;
+  }
+
+  return {
+    id: `real-${name.replace(/\s+/g, '')}`,
+    name,
+    type,
+    badgeLabel,
+    badgeClass,
+    desc,
+    scalpRate,
+    holdRate,
+    isMystery: type === '神秘券商' || isKnownMystery,
+    isDayTrade: type === '隔日沖主力' || isKnownDayTrade,
+    isSwing: type === '波段主力' || holdRate >= 65,
+    isScalp: type === '當沖大戶' || scalpRate >= 75,
+    isRetail: type === '散戶集散' || isKnownRetail,
+    isForeign,
+    isGov,
+    region: isForeign ? '外資法人' : isGov ? '八大行庫' : '主力分點'
+  };
+}
 
 // 欄位介紹與公式說明
 export const FORMULA_DEFINITIONS = [
@@ -548,7 +642,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     const reportPeriodVol = reportSlice.reduce((s, d) => s + (d.volume || 0), 0) || periodVol;
     const reportClosePrice = kline[reportEndIdx]?.close || endClosePrice;
 
-    const enrichBroker = b => {
+    const enrichBroker = (b, i) => {
       const metrics = computeBrokerProfitMetrics(
         b.buy,
         b.sell,
@@ -556,9 +650,23 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
         b.avgSell,
         reportClosePrice
       );
+      const attr = classifyBrokerAttributes(b.name, i, { buy: b.buy, sell: b.sell, net: b.net });
       return {
+        ...attr,
         ...b,
-        ...metrics
+        ...metrics,
+        badgeLabel: attr.badgeLabel,
+        badgeClass: attr.badgeClass,
+        desc: attr.desc,
+        scalpRate: attr.scalpRate,
+        holdRate: attr.holdRate,
+        isDayTrade: attr.isDayTrade,
+        isSwing: attr.isSwing,
+        isScalp: attr.isScalp,
+        isRetail: attr.isRetail,
+        isMystery: attr.isMystery,
+        isForeign: attr.isForeign,
+        isGov: attr.isGov
       };
     };
 
@@ -622,11 +730,14 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
       directionLabel,
       isBullish,
       absChipNet: Math.abs(chipNet),
-      mysteryBrokers: topBuyers.slice(0, 15),
+      mysteryBrokers: allReal.filter(b => b.isMystery),
       topBuyers: topBuyers.slice(0, 15),
       topSellers: topSellers.slice(0, 15),
       dayTradeBrokers: allReal.filter(b => b.isDayTrade),
-      foreignBrokers: allReal.filter(b => b.type === '外資'),
+      swingBrokers: allReal.filter(b => b.isSwing),
+      scalpBrokers: allReal.filter(b => b.isScalp),
+      retailBrokers: allReal.filter(b => b.isRetail),
+      foreignBrokers: allReal.filter(b => b.isForeign || b.type === '外資'),
       govBrokers: allReal.filter(b => b.isGov),
       allBrokers: allReal,
       isRealBrokerReport: true,
@@ -634,7 +745,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     };
   }
 
-  const brokerStats = BROKER_LIST.map(broker => {
+  const brokerStats = BROKER_LIST.map((broker, bIdx) => {
     const series = stock.brokerSeries?.[broker.id]?.slice(startIdx, safeEnd + 1) || [];
     let buy = 0;
     let sell = 0;
@@ -654,9 +765,11 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     const avgBuy = buy > 0 ? Number((buyCost / buy).toFixed(2)) : 0;
     const avgSell = sell > 0 ? Number((sellRev / sell).toFixed(2)) : 0;
     const metrics = computeBrokerProfitMetrics(buy, sell, avgBuy, avgSell, endClosePrice);
+    const attr = classifyBrokerAttributes(broker.name, bIdx, { buy, sell, net });
 
     return {
       ...broker,
+      ...attr,
       buy,
       sell,
       net,
@@ -669,7 +782,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
 
   const buyersSorted = [...brokerStats].filter(b => b.net > 0).sort((a, b) => b.net - a.net);
   const sellersSorted = [...brokerStats].filter(b => b.net < 0).sort((a, b) => a.net - b.net);
-  const mysteryBrokers = [...brokerStats].filter(b => b.isMystery);
+  const mysteryBrokers = brokerStats.filter(b => b.isMystery);
 
   const top15BuySum = buyersSorted.slice(0, 15).reduce((s, b) => s + b.net, 0);
   const top15SellSum = sellersSorted.slice(0, 15).reduce((s, b) => s + b.net, 0);
@@ -714,7 +827,10 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     topBuyers: buyersSorted.slice(0, 15),
     topSellers: sellersSorted.slice(0, 15),
     dayTradeBrokers: brokerStats.filter(b => b.isDayTrade),
-    foreignBrokers: brokerStats.filter(b => b.type === '外資'),
+    swingBrokers: brokerStats.filter(b => b.isSwing),
+    scalpBrokers: brokerStats.filter(b => b.isScalp),
+    retailBrokers: brokerStats.filter(b => b.isRetail),
+    foreignBrokers: brokerStats.filter(b => b.isForeign || b.type === '外資'),
     govBrokers: brokerStats.filter(b => b.isGov),
     allBrokers: brokerStats
   };
