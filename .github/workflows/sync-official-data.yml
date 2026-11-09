@@ -1,0 +1,50 @@
+name: Sync Official Taiwan Stock & Broker Data & Deploy to mainbuy.fuai.tw
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 每個台股交易日 17:30 與 20:30 (台灣時間 UTC+8) 自動抓取盤後最新股價、三大法人、融資融券與券商分點日報表
+    - cron: '30 9 * * 1-5'
+    - cron: '30 12 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Fetch Official Taiwan Stock & Broker Branch Daily Reports
+        run: node scripts/fetch-official-tw-data.mjs
+
+      - name: Build production bundle (including live-data.json & CNAME)
+        run: |
+          npm run build
+          cp public/CNAME dist/CNAME
+          touch dist/.nojekyll
+
+      - name: Deploy to gh-pages branch (mainbuy.fuai.tw)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          cd dist
+          git init -b gh-pages
+          git add .
+          git commit -m "Auto-sync official TWSE/TPEx/Broker Branch data and deploy"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
