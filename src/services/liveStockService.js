@@ -3,7 +3,7 @@
 // 2. 富邦/元大/宏遠 MoneyDJ 券商分點日報表 (zco.djhtm：免付費取得真實買超前15名與賣超前15名分點明細、買賣張數、均價與主1/主5/主10)
 // 3. FinMind 免費帳號公開 API (TaiwanStockPrice, TaiwanStockInstitutionalInvestorsBuySell, TaiwanStockMarginPurchaseShortSale, TaiwanStockPER, TaiwanStockMonthRevenue)
 
-import { BROKER_LIST } from '../data/mockStocks';
+import { BROKER_LIST } from '../data/mockStocks.js';
 
 const FINMIND_ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 
