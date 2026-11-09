@@ -173,6 +173,7 @@ export function analyzeSeriesMomentum(series = []) {
   return {
     recent10,
     today,
+    todayNet: today,
     net5,
     net10,
     net20,
@@ -189,6 +190,7 @@ export function analyzeSeriesMomentum(series = []) {
     is5DSell,
     is10DSell,
     tag,
+    stageLabel: tag,
     tagType
   };
 }
