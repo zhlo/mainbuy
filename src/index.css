@@ -3352,4 +3352,78 @@ body {
   }
 }
 
+/* ========================================================
+   🎯 標的切換分類篩選與前後步進導航
+   ======================================================== */
+.picker-category-select {
+  padding: 4px 9px;
+  border: 1px solid #6366f1;
+  border-radius: 4px;
+  background: #1e1b4b;
+  color: #c7d2fe;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.picker-category-select:hover {
+  background: #2e266d;
+  border-color: #818cf8;
+}
+
+.stock-stepper-btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid #475569;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.btn-stepper {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-stepper:hover:not(:disabled) {
+  background: #334155;
+  color: #ffffff;
+}
+
+.btn-stepper:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.stepper-counter {
+  font-size: 11px;
+  color: #60a5fa;
+  font-weight: 700;
+  padding: 0 4px;
+  user-select: none;
+}
+
+.stock-code-select optgroup {
+  font-weight: 700;
+  color: #60a5fa;
+  background: #0f172a;
+}
+
+.stock-code-select option {
+  font-weight: 500;
+  color: #f1f5f9;
+  background: #1e293b;
+}
+
+
 

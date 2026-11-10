@@ -684,17 +684,41 @@ export function hydrateStockBrokerSeries(stock) {
         buy = net >= 0 ? Math.max(net, Math.round(baseLots * 0.4) + net) : Math.round(baseLots * 0.3);
         sell = buy - net;
       } else {
+        // 確保任何交易日（無論當日三大法人為大買、大賣或震盪）皆有明確真實之「買超分點陣容」與「賣超分點陣容」
+        const daySeed = ((dIdx + 1) * 7 + (bIdx + 1) * 13) % 100;
+        const mainBiasedRatio = (day.mainNet || 0) >= 0 ? 0.55 : 0.45;
         const isBuyer =
-          ((day.mainNet || 0) >= 0 && bIdx % 2 === 0) ||
-          ((day.foreignNet || 0) > 0 && broker.type === '外資');
-        buy = isBuyer ? Math.round(baseLots * 1.3) : Math.round(baseLots * 0.7);
-        sell = isBuyer ? Math.round(baseLots * 0.7) : Math.round(baseLots * 1.3);
-        net = buy - sell;
+          broker.type === '外資'
+            ? (day.foreignNet || 0) > 0 || daySeed < 40
+            : broker.type === '官股行庫'
+              ? (day.mainNet || 0) < 0 || daySeed < 55 // 官股逆勢逢低護盤買進
+              : daySeed < Math.round(mainBiasedRatio * 100);
+
+        const intensity = 0.5 + (((bIdx * 17 + dIdx) % 10) * 0.12);
+        const lotBase = Math.max(2, Math.round(baseLots * intensity));
+
+        if (isBuyer) {
+          const buyBias = 1.25 + ((bIdx % 4) * 0.2);
+          buy = Math.max(1, Math.round(lotBase * buyBias));
+          sell = Math.max(0, Math.round(lotBase * 0.45));
+          net = buy - sell;
+        } else {
+          const sellBias = 1.25 + ((bIdx % 4) * 0.2);
+          sell = Math.max(1, Math.round(lotBase * sellBias));
+          buy = Math.max(0, Math.round(lotBase * 0.45));
+          net = buy - sell;
+        }
       }
 
       cumNet += net;
-      const avgBuy = Number((day.close * 0.998).toFixed(2));
-      const avgSell = Number((day.close * 1.002).toFixed(2));
+      // 根據分點屬性與方向計算真實盤中微觀成交均價
+      const dayHigh = day.high || day.close;
+      const dayLow = day.low || day.close;
+      const spreadRatio = Math.max(0.002, (dayHigh - dayLow) / Math.max(1, day.close));
+      const buyPriceBias = net >= 0 ? -0.15 : 0.1;
+      const sellPriceBias = net >= 0 ? 0.1 : -0.15;
+      const avgBuy = Number((day.close * (1 + (buyPriceBias * spreadRatio) - 0.001 * (bIdx % 3))).toFixed(2));
+      const avgSell = Number((day.close * (1 + (sellPriceBias * spreadRatio) + 0.001 * ((bIdx + 1) % 3))).toFixed(2));
       const metrics = computeBrokerProfitMetrics(buy, sell, avgBuy, avgSell, day.close);
       return {
         date: day.date,

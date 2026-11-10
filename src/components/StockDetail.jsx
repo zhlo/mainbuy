@@ -1,6 +1,49 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { computePeriodChipAnalysis, BROKER_LIST } from '../data/mockStocks';
-import { fetchSingleBrokerHistoryFromPortal } from '../services/liveStockService';
+import { fetchSingleBrokerHistoryFromPortal, hydrateStockBrokerSeries } from '../services/liveStockService';
+
+export const STOCK_THEME_GROUPS = [
+  {
+    id: 'ccl',
+    name: '⚡ CCL銅箔基板與載板',
+    codes: ['2383', '6274', '6213', '8358', '5469', '3037', '2368', '8155', '2367', '4927', '5439']
+  },
+  {
+    id: 'ai',
+    name: '🤖 AI伺服器與代工',
+    codes: ['2317', '2382', '3231', '2356', '2376', '6669']
+  },
+  {
+    id: 'cooling',
+    name: '❄️ 散熱水冷模組',
+    codes: ['3017', '3324', '3653', '8996', '3483']
+  },
+  {
+    id: 'power',
+    name: '⚡ 重電綠能強韌電網',
+    codes: ['1519', '1503', '1513', '1514']
+  },
+  {
+    id: 'semicon',
+    name: '💻 先進半導體封測',
+    codes: ['2330', '2454', '3711', '3583', '3131']
+  },
+  {
+    id: 'shipping',
+    name: '🚢 貨櫃與散裝航運',
+    codes: ['2603', '2609', '2615', '2605']
+  },
+  {
+    id: 'auto',
+    name: '🚗 車用電子零組件',
+    codes: ['1536', '2227', '3665', '3715']
+  },
+  {
+    id: 'etf',
+    name: '💰 高股息權值ETF',
+    codes: ['0056', '00878', '00919', '00929']
+  }
+];
 
 // 通用副圖 SVG 元件（同時繪製紅綠柱狀圖 + 累計/庫存折線圖 + 同步十字查價線；若當日盤後籌碼尚未公布則自動留空）
 function SubIndicatorChart({
@@ -160,6 +203,7 @@ export default function StockDetail({
   const [dynamicBrokerHistories, setDynamicBrokerHistories] = useState({});
   const [creditSubMode, setCreditSubMode] = useState(isMarketIndex ? 'margin' : 'short'); // 'short' | 'margin'
   const [subchartPreset, setSubchartPreset] = useState(5); // 預設顯示 5 層高清晰副圖 (含散戶指標)，可一鍵切 1~6 層
+  const [pickerCategory, setPickerCategory] = useState('ALL'); // 標的切換分類篩選 ('ALL' | 'WATCHLIST' | 'CCL' | 'THEME' | 'SWING' | 'DAYTRADE' | 'INDUSTRY')
 
   // 個股筆記與到價提醒狀態 (持久化於 localStorage)
   const [stockNotes, setStockNotes] = useState(() => {
@@ -191,6 +235,58 @@ export default function StockDetail({
     } catch {
       // ignore
     }
+  };
+
+  // 分類股票清單
+  const watchlistStocks = useMemo(
+    () => allStocks.filter(s => watchlistCodes.includes(s.code)),
+    [allStocks, watchlistCodes]
+  );
+
+  const cclStocks = useMemo(() => {
+    const cclCodes = STOCK_THEME_GROUPS.find(g => g.id === 'ccl')?.codes || [];
+    return allStocks.filter(s => cclCodes.includes(s.code));
+  }, [allStocks]);
+
+  const swingStocks = useMemo(
+    () =>
+      allStocks.filter(
+        s => (s.main5 && s.main5 > 0) || (s.mainConsec && s.mainConsec >= 2) || s.momentum?.main?.is5DBuy
+      ),
+    [allStocks]
+  );
+
+  const daytradeStocks = useMemo(
+    () =>
+      allStocks.filter(
+        s => (s.dayTradePct && s.dayTradePct >= 30) || (s.main1 >= 10 && s.main5 <= 5) || s.momentum?.main?.isDay1Buy
+      ),
+    [allStocks]
+  );
+
+  const currentCategoryStocks = useMemo(() => {
+    if (pickerCategory === 'WATCHLIST') return watchlistStocks;
+    if (pickerCategory === 'CCL') return cclStocks;
+    if (pickerCategory === 'SWING') return swingStocks;
+    if (pickerCategory === 'DAYTRADE') return daytradeStocks;
+    if (pickerCategory === 'THEME') {
+      const allThemeCodes = new Set(STOCK_THEME_GROUPS.flatMap(g => g.codes));
+      return allStocks.filter(s => allThemeCodes.has(s.code));
+    }
+    if (pickerCategory === 'INDUSTRY') {
+      return [...allStocks].sort((a, b) => (a.industry || '').localeCompare(b.industry || ''));
+    }
+    return allStocks;
+  }, [allStocks, pickerCategory, watchlistStocks, cclStocks, swingStocks, daytradeStocks]);
+
+  const currentCategoryIdx = currentCategoryStocks.findIndex(s => s.code === stock.code);
+
+  const handleStepStock = delta => {
+    if (currentCategoryStocks.length === 0) return;
+    let nextIdx = currentCategoryIdx + delta;
+    if (nextIdx < 0) nextIdx = currentCategoryStocks.length - 1;
+    if (nextIdx >= currentCategoryStocks.length) nextIdx = 0;
+    onSelectStock(currentCategoryStocks[nextIdx].code);
   };
 
   useEffect(() => {
@@ -245,10 +341,19 @@ export default function StockDetail({
   );
   const hoveredDay = visibleKline[localHoverIdx] || visibleKline[visibleKline.length - 1];
 
+  // 保證個股隨時具備充實的分點歷史序列與動態特徵（避免從快取載入時因精簡而遺漏分點資料）
+  const activeStock = useMemo(() => {
+    if (!stock || stock.code === 'TAIEX') return stock;
+    if (!stock.brokerSeries || Object.keys(stock.brokerSeries).length < 10) {
+      return hydrateStockBrokerSeries(stock);
+    }
+    return stock;
+  }, [stock]);
+
   // 計算右側統計區間籌碼分析與分點排行
   const chipAnalysis = useMemo(() => {
-    return computePeriodChipAnalysis(stock, endDateIdx, periodDays);
-  }, [stock, endDateIdx, periodDays]);
+    return computePeriodChipAnalysis(activeStock, endDateIdx, periodDays);
+  }, [activeStock, endDateIdx, periodDays]);
 
   // 當使用者點選某個真實分點時，若該分點含有 zco0Path 且尚未抓取 60 日真實逐日歷史，背景自動向券商網站抓取
   useEffect(() => {
@@ -638,6 +743,29 @@ export default function StockDetail({
 
           <div className="stock-picker-group">
             <span className="picker-label">標的切換</span>
+
+            {/* 分類縮短選擇器 */}
+            <select
+              className="picker-category-select"
+              value={pickerCategory}
+              onChange={e => setPickerCategory(e.target.value)}
+              id="select-picker-category"
+              title="依概念股、產業別、波段主力或當沖/自選股篩選，縮短切換清單長度"
+            >
+              <option value="ALL">📁 全部選股池 ({allStocks.length})</option>
+              {watchlistStocks.length > 0 && (
+                <option value="WATCHLIST">⭐ 我的自選 ({watchlistStocks.length})</option>
+              )}
+              {cclStocks.length > 0 && (
+                <option value="CCL">⚡ CCL銅箔基板 ({cclStocks.length})</option>
+              )}
+              <option value="THEME">🤖 依概念族群分組</option>
+              <option value="SWING">💎 波段主力鎖碼 ({swingStocks.length})</option>
+              <option value="DAYTRADE">🔥 當沖/隔日沖 ({daytradeStocks.length})</option>
+              <option value="INDUSTRY">🏭 依細產業分類</option>
+            </select>
+
+            {/* 個股下拉選單 (支援 optgroup 分組) */}
             <select
               className="stock-code-select"
               value={stock.code}
@@ -645,12 +773,120 @@ export default function StockDetail({
               id="select-detail-stock"
             >
               <option value="TAIEX">📊 TAIEX 加權指數 (大盤K線/籌碼)</option>
-              {allStocks.map(s => (
-                <option key={s.code} value={s.code}>
-                  {s.code} {s.name}
-                </option>
-              ))}
+
+              {pickerCategory === 'THEME' ? (
+                STOCK_THEME_GROUPS.map(grp => {
+                  const matching = allStocks.filter(s => grp.codes.includes(s.code));
+                  if (matching.length === 0) return null;
+                  return (
+                    <optgroup key={grp.id} label={`${grp.name} (${matching.length})`}>
+                      {matching.map(s => (
+                        <option key={s.code} value={s.code}>
+                          {watchlistCodes.includes(s.code) ? '★ ' : ''}
+                          {s.code} {s.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })
+              ) : pickerCategory === 'INDUSTRY' ? (
+                (() => {
+                  const groups = {};
+                  allStocks.forEach(s => {
+                    const ind = s.industry || '其他產業';
+                    if (!groups[ind]) groups[ind] = [];
+                    groups[ind].push(s);
+                  });
+                  return Object.entries(groups).map(([indName, list]) => (
+                    <optgroup key={indName} label={`${indName} (${list.length})`}>
+                      {list.map(s => (
+                        <option key={s.code} value={s.code}>
+                          {watchlistCodes.includes(s.code) ? '★ ' : ''}
+                          {s.code} {s.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ));
+                })()
+              ) : pickerCategory === 'ALL' ? (
+                <>
+                  {watchlistStocks.length > 0 && (
+                    <optgroup label={`⭐ 我的自選股 (${watchlistStocks.length})`}>
+                      {watchlistStocks.map(s => (
+                        <option key={`wl-${s.code}`} value={s.code}>
+                          ★ {s.code} {s.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {cclStocks.length > 0 && (
+                    <optgroup label={`⚡ CCL銅箔基板概念股 (${cclStocks.length})`}>
+                      {cclStocks.map(s => (
+                        <option key={`ccl-${s.code}`} value={s.code}>
+                          {watchlistCodes.includes(s.code) ? '★ ' : ''}
+                          {s.code} {s.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label={`📊 所有選股池標的 (${allStocks.length})`}>
+                    {allStocks.map(s => (
+                      <option key={s.code} value={s.code}>
+                        {watchlistCodes.includes(s.code) ? '★ ' : ''}
+                        {s.code} {s.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                </>
+              ) : (
+                <optgroup
+                  label={`${
+                    pickerCategory === 'WATCHLIST'
+                      ? '⭐ 我的自選股'
+                      : pickerCategory === 'CCL'
+                        ? '⚡ CCL銅箔基板概念股'
+                        : pickerCategory === 'SWING'
+                          ? '💎 波段主力鎖碼股'
+                          : '🔥 當沖/隔日沖熱門股'
+                  } (${currentCategoryStocks.length})`}
+                >
+                  {currentCategoryStocks.map(s => (
+                    <option key={s.code} value={s.code}>
+                      {watchlistCodes.includes(s.code) ? '★ ' : ''}
+                      {s.code} {s.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+
+            {/* 前後檔個股快速步進導航 */}
+            <div className="stock-stepper-btn-group">
+              <button
+                type="button"
+                className="btn-stepper"
+                onClick={() => handleStepStock(-1)}
+                title="切換至分類上一檔個股"
+                disabled={currentCategoryStocks.length <= 1}
+              >
+                ◀
+              </button>
+              {currentCategoryIdx !== -1 && (
+                <span className="stepper-counter" title="當前分類內順位">
+                  {currentCategoryIdx + 1}/{currentCategoryStocks.length}
+                </span>
+              )}
+              <button
+                type="button"
+                className="btn-stepper"
+                onClick={() => handleStepStock(1)}
+                title="切換至分類下一檔個股"
+                disabled={currentCategoryStocks.length <= 1}
+              >
+                ▶
+              </button>
+            </div>
+
             <strong className="stock-title-name">{stock.name}</strong>
             {!isMarketIndex && (
               <button
