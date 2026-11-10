@@ -473,6 +473,15 @@ export default function StockScreener({
   const [isBatchLoading, setIsBatchLoading] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
   const [alsoAddToWatchlist, setAlsoAddToWatchlist] = useState(true);
+  const [batchProgress, setBatchProgress] = useState({
+    active: false,
+    current: 0,
+    total: 0,
+    code: '',
+    name: '',
+    percent: 0,
+    status: 'idle'
+  });
 
   const [activeCategoryDrawer, setActiveCategoryDrawer] = useState(null);
   const [activeStrategyIds, setActiveStrategyIds] = useState([]);
@@ -796,7 +805,7 @@ export default function StockScreener({
     URL.revokeObjectURL(url);
   };
 
-  // 執行批次匯入股票或熱門族群
+  // 執行批次匯入股票或熱門族群（即時進度追蹤）
   const handleExecuteBatchAdd = async targetCodes => {
     if (!onBatchAddStocks) return;
     const list =
@@ -809,10 +818,37 @@ export default function StockScreener({
       setBatchMessage('⚠️ 請輸入至少一檔台股代號（如 2330、2454）或點選下方熱門族群標籤');
       return;
     }
+
     setIsBatchLoading(true);
-    setBatchMessage(`⏳ 正在同步匯入 ${list.length} 檔股票並抓取最新籌碼與分點日報表...`);
+    setBatchProgress({
+      active: true,
+      current: 0,
+      total: list.length,
+      code: list[0],
+      name: '',
+      percent: 0,
+      status: 'fetching'
+    });
+    setBatchMessage(`⏳ 準備匯入 ${list.length} 檔股票，即將開始連線抓取籌碼與分點資料...`);
+
     try {
-      const res = await onBatchAddStocks(list);
+      const res = await onBatchAddStocks(list, progress => {
+        setBatchProgress({
+          active: true,
+          current: progress.current,
+          total: progress.total,
+          code: progress.code,
+          name: progress.name || '',
+          percent: progress.percent,
+          status: progress.status
+        });
+        setBatchMessage(
+          `⏳ 正在抓取 [${progress.current}/${progress.total}]：${progress.code} ${
+            progress.name ? `${progress.name} ` : ''
+          }籌碼與分點日報表 (${progress.percent}%)`
+        );
+      });
+
       if (alsoAddToWatchlist && onTogglePin) {
         list.forEach(c => {
           if (!pinnedCodes.includes(c)) {
@@ -820,6 +856,15 @@ export default function StockScreener({
           }
         });
       }
+
+      setBatchProgress(prev => ({
+        ...prev,
+        active: true,
+        current: list.length,
+        percent: 100,
+        status: 'done'
+      }));
+
       setBatchMessage(
         `🎉 成功匯入 ${res.success} 檔股票至選股池！${alsoAddToWatchlist ? '已同步加入自選股 ⭐' : ''}`
       );
@@ -828,10 +873,20 @@ export default function StockScreener({
         setIsBatchLoading(false);
         setBatchMessage('');
         setBatchInputText('');
-      }, 1500);
+        setBatchProgress({
+          active: false,
+          current: 0,
+          total: 0,
+          code: '',
+          name: '',
+          percent: 0,
+          status: 'idle'
+        });
+      }, 1600);
     } catch (err) {
       setBatchMessage(`⚠️ 匯入過程異常: ${err.message}`);
       setIsBatchLoading(false);
+      setBatchProgress(prev => ({ ...prev, active: false }));
     }
   };
 
@@ -1646,7 +1701,9 @@ export default function StockScreener({
                     disabled={isBatchLoading || !batchInputText.trim()}
                     id="btn-submit-batch-add"
                   >
-                    {isBatchLoading ? '⏳ 正在並行抓取最新籌碼...' : '🚀 一鍵批次匯入並快取'}
+                    {isBatchLoading
+                      ? `⏳ 正在抓取 [${batchProgress.current}/${batchProgress.total}] (${batchProgress.percent}%)`
+                      : '🚀 一鍵批次匯入並快取'}
                   </button>
                   <button
                     className="btn-clear-textarea"
@@ -1667,8 +1724,8 @@ export default function StockScreener({
                 </div>
               </div>
 
-              {/* 狀態訊息列 */}
-              {batchMessage && (
+              {/* 即時進度與狀態訊息區塊 */}
+              {(batchMessage || batchProgress.active) && (
                 <div
                   className={`batch-status-banner ${
                     batchMessage.includes('✅') || batchMessage.includes('🎉')
@@ -1677,8 +1734,46 @@ export default function StockScreener({
                         ? 'status-loading'
                         : 'status-error'
                   }`}
+                  id="batch-progress-status-banner"
                 >
-                  {batchMessage}
+                  <div className="batch-status-title-row">
+                    <span className="batch-status-text">
+                      {isBatchLoading && <span className="batch-spinner" />}
+                      {batchMessage}
+                    </span>
+                    {batchProgress.active && batchProgress.total > 0 && (
+                      <span className="batch-status-count-badge">
+                        {batchProgress.current} / {batchProgress.total} 檔
+                      </span>
+                    )}
+                  </div>
+
+                  {batchProgress.active && (
+                    <div className="batch-progress-container">
+                      <div className="batch-progress-bar-track">
+                        <div
+                          className="batch-progress-bar-fill"
+                          style={{ width: `${Math.min(100, Math.max(0, batchProgress.percent))}%` }}
+                        />
+                      </div>
+                      <div className="batch-progress-meta">
+                        <span className="batch-current-target">
+                          {batchProgress.status === 'done' && batchProgress.percent === 100 ? (
+                            '✅ 全數資料抓取完畢，已納入選股池'
+                          ) : (
+                            <>
+                              <span className="pulse-dot" />
+                              正在同步：
+                              <strong>
+                                {batchProgress.code} {batchProgress.name}
+                              </strong>
+                            </>
+                          )}
+                        </span>
+                        <strong className="batch-progress-pct-val">{batchProgress.percent}%</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1701,7 +1796,9 @@ export default function StockScreener({
                         disabled={isBatchLoading}
                         id={`btn-add-theme-${grp.id}`}
                       >
-                        + 一鍵加入全組 ({grp.codes.join(', ')})
+                        {isBatchLoading
+                          ? `⏳ 抓取進度 ${batchProgress.current}/${batchProgress.total}...`
+                          : `+ 一鍵加入全組 (${grp.codes.join(', ')})`}
                       </button>
                     </div>
                   ))}

@@ -126,18 +126,48 @@ export default function App() {
     [dataSourceConfig.finmindToken, taiexData]
   );
 
-  // 批次加入多檔股票或整組族群概念股至選股池與本機快取
+  // 批次加入多檔股票或整組族群概念股至選股池與本機快取（支援即時進度通知）
   const handleBatchAddStocks = useCallback(
-    async (rawCodes = []) => {
+    async (rawCodes = [], onProgress) => {
       const uniqueCodes = [...new Set(rawCodes.map(c => String(c).trim()).filter(Boolean))];
       if (uniqueCodes.length === 0) return { success: 0, total: 0 };
 
       let successCount = 0;
-      for (const code of uniqueCodes) {
+      const total = uniqueCodes.length;
+
+      for (let i = 0; i < total; i++) {
+        const code = uniqueCodes[i];
         const existing = stocks.find(s => s.code === code);
+        const currentName = existing?.name || '';
+
+        // 抓取前通知進度
+        if (onProgress) {
+          onProgress({
+            current: i + 1,
+            total,
+            code,
+            name: currentName,
+            percent: Math.round((i / total) * 100),
+            status: 'fetching'
+          });
+        }
+
         const updated = await syncSingleStock(code, existing || null, true);
         if (updated) {
           successCount++;
+        }
+
+        // 抓取完成通知進度
+        if (onProgress) {
+          onProgress({
+            current: i + 1,
+            total,
+            code,
+            name: updated?.name || currentName,
+            percent: Math.round(((i + 1) / total) * 100),
+            status: 'done',
+            successCount
+          });
         }
       }
       return { success: successCount, total: uniqueCodes.length };
