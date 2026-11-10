@@ -75,6 +75,36 @@ export default function DataSourceModal({
             </div>
           </div>
 
+          {/* 散戶動向與欄位計算模型說明卡片 */}
+          <div className="formula-calculator-box" style={{ marginBottom: '16px' }}>
+            <div className="calc-header">
+              <span className="calc-badge">數據來源說明</span>
+              <strong>👥 散戶動向與主力選股指標之精準度與計算依據</strong>
+            </div>
+            <div style={{ padding: '10px 14px', fontSize: '13px', lineHeight: '1.7', color: '#cbd5e1' }}>
+              <div>
+                <strong style={{ color: '#38bdf8' }}>1. 散戶動向數據來源：</strong>
+                台灣證券交易所 (TWSE) 官方每日公布三大法人與信用交易，並無官方散戶報表。本系統採市場通用量化模型：
+                <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px', color: '#f59e0b' }}>
+                  大盤散戶指標 = -(三大法人買賣超 × 0.55) + 融資餘額增減
+                </code>
+                ，個股散戶指標則以各股融資增減結合三大法人與主力大戶對作部位計算，真實反映散戶追高槓桿與接刀動向。
+              </div>
+              <div style={{ marginTop: '8px' }}>
+                <strong style={{ color: '#38bdf8' }}>2. 主1、主5、主10：</strong>
+                嚴格依照證券公會與券商分點報表計算：
+                <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px', color: '#34d399' }}>
+                  (區間Top15買超總量 - 區間Top15賣超總量) / 區間總成交量 × 100%
+                </code>
+                ，由官方每日分點成交明細精算。
+              </div>
+              <div style={{ marginTop: '8px' }}>
+                <strong style={{ color: '#38bdf8' }}>3. 外資% 與 投信%：</strong>
+                選股主表統一採「當日淨買賣佔比 (淨買賣張數/總成交量×100%)」，個股內頁另行提供「累積持股比率%」，清楚區分短線進出與長線籌碼庫存。
+              </div>
+            </div>
+          </div>
+
           <div className="formula-calculator-box">
             <div className="calc-header">
               <span className="calc-badge">進階選填</span>

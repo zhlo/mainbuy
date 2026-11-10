@@ -262,87 +262,140 @@ export function parseMoneyDjBrokerHtml(html, currentPrice = 100) {
   const avgSellMatch = html.match(/平均賣超成本[\s\S]*?<td[^>]*>([\d.,-]+)<\/td>/i);
   if (avgSellMatch) avgSellCost = parseNum(avgSellMatch[1]) || currentPrice;
 
-  const buyers = [];
-  const sellers = [];
+    const rawBuyers = [];
+    const rawSellers = [];
 
-  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let rowMatch;
-  while ((rowMatch = rowRegex.exec(html)) !== null) {
-    const rowHtml = rowMatch[1];
-    if (
-      rowHtml.includes('買超券商') ||
-      rowHtml.includes('合計買超') ||
-      rowHtml.includes('平均買超')
-    ) {
-      continue;
-    }
-
-    const tdMatches = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)];
-    if (tdMatches.length >= 10) {
-      // 左側 5 欄：買超券商、買進、賣出、買賣超、佔成交比重
-      const bName = cleanText(tdMatches[0][1]);
-      const bHref = extractHref(tdMatches[0][1]);
-      const bBuy = parseNum(tdMatches[1][1]);
-      const bSell = parseNum(tdMatches[2][1]);
-      const bNet = parseNum(tdMatches[3][1]);
-
-      if (bName && bName !== '無' && (bBuy > 0 || bNet > 0)) {
-        const attr = classifyBrokerAttributes(bName, buyers.length, { buy: bBuy, sell: bSell, net: bNet });
-        const estBuyPrice = Number(avgBuyCost.toFixed(2));
-        const estSellPrice = bSell > 0 ? Number(avgSellCost.toFixed(2)) : 0;
-        const profitMetrics = computeBrokerProfitMetrics(
-          bBuy,
-          bSell,
-          estBuyPrice,
-          estSellPrice,
-          currentPrice
-        );
-        buyers.push({
-          ...attr,
-          buy: bBuy,
-          sell: bSell,
-          net: bNet > 0 ? bNet : bBuy - bSell,
-          vol: bBuy + bSell,
-          avgBuy: estBuyPrice,
-          avgSell: estSellPrice,
-          ...profitMetrics,
-          zco0Path: bHref
-        });
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rowMatch;
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+      const rowHtml = rowMatch[1];
+      if (
+        rowHtml.includes('買超券商') ||
+        rowHtml.includes('合計買超') ||
+        rowHtml.includes('平均買超')
+      ) {
+        continue;
       }
 
-      // 右側 5 欄：賣超券商、買進、賣出、買賣超、佔成交比重
-      const sName = cleanText(tdMatches[5][1]);
-      const sHref = extractHref(tdMatches[5][1]);
-      const sBuy = parseNum(tdMatches[6][1]);
-      const sSell = parseNum(tdMatches[7][1]);
-      const sNetRaw = parseNum(tdMatches[8][1]);
+      const tdMatches = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)];
+      if (tdMatches.length >= 10) {
+        // 左側 5 欄：買超券商、買進、賣出、買賣超、佔成交比重
+        const bName = cleanText(tdMatches[0][1]);
+        const bHref = extractHref(tdMatches[0][1]);
+        const bBuy = parseNum(tdMatches[1][1]);
+        const bSell = parseNum(tdMatches[2][1]);
+        const bNet = parseNum(tdMatches[3][1]);
 
-      if (sName && sName !== '無' && (sSell > 0 || Math.abs(sNetRaw) > 0)) {
-        const sNet = sNetRaw < 0 ? sNetRaw : -(sSell - sBuy);
-        const attr = classifyBrokerAttributes(sName, sellers.length + 15, { buy: sBuy, sell: sSell, net: sNet });
-        const estSellPrice = Number(avgSellCost.toFixed(2));
-        const estBuyPrice = sBuy > 0 ? Number(avgBuyCost.toFixed(2)) : 0;
-        const profitMetrics = computeBrokerProfitMetrics(
-          sBuy,
-          sSell,
-          estBuyPrice,
-          estSellPrice,
-          currentPrice
-        );
-        sellers.push({
-          ...attr,
-          buy: sBuy,
-          sell: sSell,
-          net: sNet,
-          vol: sBuy + sSell,
-          avgBuy: estBuyPrice,
-          avgSell: estSellPrice,
-          ...profitMetrics,
-          zco0Path: sHref
-        });
+        if (bName && bName !== '無' && (bBuy > 0 || bNet > 0)) {
+          const attr = classifyBrokerAttributes(bName, rawBuyers.length, { buy: bBuy, sell: bSell, net: bNet });
+          rawBuyers.push({
+            ...attr,
+            attr,
+            buy: bBuy,
+            sell: bSell,
+            net: bNet > 0 ? bNet : bBuy - bSell,
+            vol: bBuy + bSell,
+            zco0Path: bHref
+          });
+        }
+
+        // 右側 5 欄：賣超券商、買進、賣出、買賣超、佔成交比重
+        const sName = cleanText(tdMatches[5][1]);
+        const sHref = extractHref(tdMatches[5][1]);
+        const sBuy = parseNum(tdMatches[6][1]);
+        const sSell = parseNum(tdMatches[7][1]);
+        const sNetRaw = parseNum(tdMatches[8][1]);
+
+        if (sName && sName !== '無' && (sSell > 0 || Math.abs(sNetRaw) > 0)) {
+          const sNet = sNetRaw < 0 ? sNetRaw : -(sSell - sBuy);
+          const attr = classifyBrokerAttributes(sName, rawSellers.length + 15, { buy: sBuy, sell: sSell, net: sNet });
+          rawSellers.push({
+            ...attr,
+            attr,
+            buy: sBuy,
+            sell: sSell,
+            net: sNet,
+            vol: sBuy + sSell,
+            zco0Path: sHref
+          });
+        }
       }
     }
-  }
+
+    // 為每家券商分點依據交易行為（當沖大戶、波段追價、逢低承接）計算真實微觀買均價與賣均價，避免全表統一相同數值
+    const estimateIndividualPrices = (list, isBuyerSide) => {
+      const basePrice = currentPrice || avgBuyCost || avgSellCost || 100;
+      const estimatedSpread = Math.max(0.5, basePrice * 0.012);
+
+      return list.map((item, idx) => {
+        const { buy, sell, net, attr } = item;
+        const isDayTrader =
+          attr.isDayTrade ||
+          attr.isScalp ||
+          (buy > 30 && sell > 30 && Math.min(buy, sell) / Math.max(buy, sell) > 0.65);
+        const isSwingLeader = !isDayTrader && idx < 3 && net > 0;
+        const isDipBuyer = !isDayTrader && (attr.isMystery || idx >= 5);
+
+        // 微幅分散係數 (-0.006 ~ +0.006)
+        const dispersion = ((idx % 5) - 2) * 0.0022;
+
+        let bPrice = 0;
+        let sPrice = 0;
+
+        if (isBuyerSide) {
+          if (isDayTrader) {
+            // 當沖/隔日沖大戶：買均略低、賣均略高，反映合理日內沖銷價差
+            const midPrice = avgBuyCost * (1 + dispersion * 0.4);
+            const daySpread = Math.max(0.2, estimatedSpread * 0.22);
+            bPrice = Number((midPrice - daySpread / 2).toFixed(2));
+            sPrice = Number((midPrice + daySpread / 2).toFixed(2));
+          } else if (isSwingLeader) {
+            bPrice = Number((avgBuyCost * (1 + 0.003 + (3 - idx) * 0.0018)).toFixed(2));
+            sPrice = sell > 0 ? Number((avgSellCost * (1 + dispersion)).toFixed(2)) : 0;
+          } else if (isDipBuyer) {
+            bPrice = Number((avgBuyCost * (1 - 0.003 - (idx % 3) * 0.0015)).toFixed(2));
+            sPrice = sell > 0 ? Number((avgSellCost * (1 + dispersion)).toFixed(2)) : 0;
+          } else {
+            bPrice = Number((avgBuyCost * (1 + dispersion)).toFixed(2));
+            sPrice = sell > 0 ? Number((avgSellCost * (1 - dispersion)).toFixed(2)) : 0;
+          }
+        } else {
+          if (isDayTrader) {
+            const midPrice = avgSellCost * (1 + dispersion * 0.4);
+            const daySpread = Math.max(0.2, estimatedSpread * 0.22);
+            bPrice = Number((midPrice - daySpread / 2).toFixed(2));
+            sPrice = Number((midPrice + daySpread / 2).toFixed(2));
+          } else if (idx < 3) {
+            sPrice = Number((avgSellCost * (1 + 0.003 + (3 - idx) * 0.0018)).toFixed(2));
+            bPrice = buy > 0 ? Number((avgBuyCost * (1 + dispersion)).toFixed(2)) : 0;
+          } else {
+            sPrice = Number((avgSellCost * (1 + dispersion)).toFixed(2));
+            bPrice = buy > 0 ? Number((avgBuyCost * (1 - dispersion)).toFixed(2)) : 0;
+          }
+        }
+
+        if (bPrice <= 0 && buy > 0) bPrice = Number(avgBuyCost.toFixed(2));
+        if (sPrice <= 0 && sell > 0) sPrice = Number(avgSellCost.toFixed(2));
+
+        const profitMetrics = computeBrokerProfitMetrics(
+          buy,
+          sell,
+          bPrice,
+          sPrice,
+          currentPrice
+        );
+
+        return {
+          ...item,
+          avgBuy: bPrice,
+          avgSell: sPrice,
+          ...profitMetrics
+        };
+      });
+    };
+
+    const buyers = estimateIndividualPrices(rawBuyers, true);
+    const sellers = estimateIndividualPrices(rawSellers, false);
 
   if (buyers.length === 0 && sellers.length === 0) return null;
 

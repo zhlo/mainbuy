@@ -404,12 +404,58 @@ function checkMomentumMatch(stock, target, stage) {
   return matchSingle(mom[target]);
 }
 
+export const HOT_THEME_GROUPS = [
+  {
+    id: 'ai-servers',
+    name: '🤖 AI伺服器代工',
+    codes: ['2317', '2382', '3231', '2356', '2376', '6669'],
+    desc: '鴻海(2317)、廣達(2382)、緯創(3231)、英業達(2356)、技嘉(2376)、緯穎(6669)'
+  },
+  {
+    id: 'cooling',
+    name: '❄️ 散熱水冷模組',
+    codes: ['3017', '3324', '3653', '8996', '3483'],
+    desc: '奇鋐(3017)、雙鴻(3324)、健策(3653)、高力(8996)、力致(3483)'
+  },
+  {
+    id: 'power-grid',
+    name: '⚡ 重電綠能強韌電網',
+    codes: ['1519', '1503', '1513', '1514'],
+    desc: '華城(1519)、士電(1503)、中興電(1513)、亞力(1514)'
+  },
+  {
+    id: 'semicon',
+    name: '💻 先進半導體封測',
+    codes: ['2330', '2454', '3711', '3583', '3131'],
+    desc: '台積電(2330)、聯發科(2454)、日月光投控(3711)、辛耘(3583)、弘塑(3131)'
+  },
+  {
+    id: 'shipping',
+    name: '🚢 貨櫃與散裝航運',
+    codes: ['2603', '2609', '2615', '2605'],
+    desc: '長榮(2603)、陽明(2609)、萬海(2615)、新興(2605)'
+  },
+  {
+    id: 'automotive',
+    name: '🚗 車用電子零組件',
+    codes: ['1536', '2227', '3665', '3715'],
+    desc: '和大(1536)、裕日車(2227)、貿聯-KY(3665)、定穎投控(3715)'
+  },
+  {
+    id: 'high-dividend',
+    name: '💰 高股息權值ETF',
+    codes: ['0056', '00878', '00919', '00929'],
+    desc: '元大高股息(0056)、國泰永續高股息(00878)、群益台灣精選高息(00919)、復華台灣科技優息(00929)'
+  }
+];
+
 export default function StockScreener({
   stocks,
   taiexData,
   pinnedCodes,
   onTogglePin,
   onSelectStock,
+  onBatchAddStocks,
   onOpenFormulaModal
 }) {
   const [marketScope, setMarketScope] = useState('ALL');
@@ -420,6 +466,12 @@ export default function StockScreener({
   // 方案 C 核心：右側免跳頁個股 K 線與分點快覽抽屜
   const [previewCode, setPreviewCode] = useState('2330');
   const [isPreviewOpen, setIsPreviewOpen] = useState(true);
+
+  // 批次加入與族群快選 Modal
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchInputText, setBatchInputText] = useState('');
+  const [isBatchLoading, setIsBatchLoading] = useState(false);
+  const [batchMessage, setBatchMessage] = useState('');
 
   const [activeCategoryDrawer, setActiveCategoryDrawer] = useState(null);
   const [activeStrategyIds, setActiveStrategyIds] = useState([]);
@@ -743,6 +795,36 @@ export default function StockScreener({
     URL.revokeObjectURL(url);
   };
 
+  // 執行批次匯入股票或熱門族群
+  const handleExecuteBatchAdd = async targetCodes => {
+    if (!onBatchAddStocks) return;
+    const list =
+      targetCodes ||
+      batchInputText
+        .split(/[\s,，、\n]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    if (list.length === 0) {
+      setBatchMessage('⚠️ 請輸入至少一檔台股代號（如 2330、2454）或點選下方熱門族群標籤');
+      return;
+    }
+    setIsBatchLoading(true);
+    setBatchMessage(`⏳ 正在同步匯入 ${list.length} 檔股票並抓取最新籌碼與分點日報表...`);
+    try {
+      const res = await onBatchAddStocks(list);
+      setBatchMessage(`🎉 成功匯入 ${res.success} 檔股票至選股池！已自動完成快取與籌碼運算。`);
+      setTimeout(() => {
+        setIsBatchModalOpen(false);
+        setIsBatchLoading(false);
+        setBatchMessage('');
+        setBatchInputText('');
+      }, 1500);
+    } catch (err) {
+      setBatchMessage(`⚠️ 匯入過程異常: ${err.message}`);
+      setIsBatchLoading(false);
+    }
+  };
+
   const getSignedColorClass = val => {
     if (val > 0) return 'cell-red';
     if (val < 0) return 'cell-green';
@@ -771,6 +853,18 @@ export default function StockScreener({
             <option value="PINNED">★ 自選置頂股 ({pinnedCodes.length})</option>
             <option value="CACHED">⚡ 曾搜尋快取股 ({cachedCount})</option>
           </select>
+
+          <button
+            className="btn-batch-add-pill"
+            onClick={() => {
+              setIsBatchModalOpen(true);
+              setBatchMessage('');
+            }}
+            id="btn-open-batch-modal"
+            title="批次輸入多檔股票代號或一鍵加入熱門族群概念股"
+          >
+            ➕ 批次加入 / 族群快選
+          </button>
 
           <div className="quick-search-wrap">
             <input
@@ -1173,13 +1267,55 @@ export default function StockScreener({
                   主10 {sortConfig.key === 'main10' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th className="sortable" onClick={() => handleSort('foreignPct')}>外資%</th>
-                <th className="sortable" onClick={() => handleSort('trustPct')}>投信%</th>
-                <th className="sortable" onClick={() => handleSort('dealerPct')}>自營%</th>
-                <th className="sortable" onClick={() => handleSort('dayTradePct')}>當沖%</th>
-                <th className="sortable" onClick={() => handleSort('marginPct')}>融資%</th>
-                <th className="sortable" onClick={() => handleSort('shortPct')}>融券%</th>
-                <th className="sortable" onClick={() => handleSort('shortMarginRatio')}>券資<br />比%</th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('foreignPct')}
+                  title="外資%【外資當日買賣佔比】：外資當日淨買賣超張數 / 當日總成交量 × 100%（正值為買超，負值為賣超）"
+                >
+                  外資% {sortConfig.key === 'foreignPct' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('trustPct')}
+                  title="投信%【投信當日買賣佔比】：投信當日淨買賣超張數 / 當日總成交量 × 100%（正值為買超，負值為賣超）"
+                >
+                  投信% {sortConfig.key === 'trustPct' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('dealerPct')}
+                  title="自營%【自營商當日買賣佔比】：自營商當日淨買賣超張數 / 當日總成交量 × 100%"
+                >
+                  自營%
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('dayTradePct')}
+                  title="當沖%【當沖成交比率】：當日沖銷總成交張數 / 當日總成交量 × 100%"
+                >
+                  當沖%
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('marginPct')}
+                  title="融資%【融資變動佔比】：當日融資增減張數 / 當日總成交量 × 100%"
+                >
+                  融資%
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('shortPct')}
+                  title="融券%【融券變動佔比】：當日融券增減張數 / 當日總成交量 × 100%"
+                >
+                  融券%
+                </th>
+                <th
+                  className="sortable"
+                  onClick={() => handleSort('shortMarginRatio')}
+                  title="券資比%：融券餘額 / 融資餘額 × 100%（券資比高伴隨主力鎖碼易發動軋空行情）"
+                >
+                  券資<br />比%
+                </th>
                 <th
                   className="sortable"
                   onClick={() => handleSort('biasYear')}
@@ -1434,6 +1570,118 @@ export default function StockScreener({
           />
         )}
       </div>
+
+      {/* ➕ 批次加入股票 / 熱門族群一鍵快選彈窗 (Batch Add Modal) */}
+      {isBatchModalOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            if (!isBatchLoading) setIsBatchModalOpen(false);
+          }}
+          id="batch-add-modal-backdrop"
+        >
+          <div
+            className="modal-panel batch-add-panel"
+            onClick={e => e.stopPropagation()}
+            id="batch-add-modal-panel"
+          >
+            <div className="modal-header">
+              <div>
+                <h2 className="modal-title">➕ 批次加入股票 / 熱門族群一鍵快選</h2>
+                <p className="modal-subtitle">
+                  無需一檔一檔手動查詢！支援輸入多檔台股代號批次匯入，或直接一鍵將熱門題材概念股全數加入選股池
+                </p>
+              </div>
+              <button
+                className="btn-icon-close"
+                onClick={() => {
+                  if (!isBatchLoading) setIsBatchModalOpen(false);
+                }}
+                disabled={isBatchLoading}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {/* 自訂輸入區塊 */}
+              <div className="batch-section">
+                <label className="batch-section-label">
+                  <strong>✍️ 批次輸入台股代號（支援逗號、空格或換行）：</strong>
+                  <span className="batch-subhint">例如：2330, 2454, 2382, 3017, 3324, 1519, 2603, 3037</span>
+                </label>
+                <textarea
+                  className="batch-textarea"
+                  rows={4}
+                  placeholder="請在此貼上或輸入股票代號（例如：2330 2454 2382 3017 3324 1519 2603）..."
+                  value={batchInputText}
+                  onChange={e => setBatchInputText(e.target.value)}
+                  disabled={isBatchLoading}
+                  id="textarea-batch-codes"
+                />
+                <div className="batch-actions-row">
+                  <button
+                    className="btn-execute-batch"
+                    onClick={() => handleExecuteBatchAdd()}
+                    disabled={isBatchLoading || !batchInputText.trim()}
+                    id="btn-submit-batch-add"
+                  >
+                    {isBatchLoading ? '⏳ 正在並行抓取最新籌碼...' : '🚀 一鍵批次匯入並快取'}
+                  </button>
+                  <button
+                    className="btn-clear-textarea"
+                    onClick={() => setBatchInputText('')}
+                    disabled={isBatchLoading || !batchInputText}
+                  >
+                    清空輸入
+                  </button>
+                </div>
+              </div>
+
+              {/* 狀態訊息列 */}
+              {batchMessage && (
+                <div
+                  className={`batch-status-banner ${
+                    batchMessage.includes('✅') || batchMessage.includes('🎉')
+                      ? 'status-success'
+                      : batchMessage.includes('⏳')
+                        ? 'status-loading'
+                        : 'status-error'
+                  }`}
+                >
+                  {batchMessage}
+                </div>
+              )}
+
+              {/* 熱門題材族群一鍵快選 */}
+              <div className="batch-section theme-groups-section">
+                <label className="batch-section-label">
+                  <strong>🔥 熱門題材族群一鍵加入選股池（點擊整組匯入）：</strong>
+                </label>
+                <div className="theme-groups-grid">
+                  {HOT_THEME_GROUPS.map(grp => (
+                    <div key={grp.id} className="theme-group-card">
+                      <div className="theme-group-header">
+                        <span className="theme-group-title">{grp.name}</span>
+                        <span className="theme-group-count">{grp.codes.length} 檔</span>
+                      </div>
+                      <p className="theme-group-desc">{grp.desc}</p>
+                      <button
+                        className="btn-add-theme-group"
+                        onClick={() => handleExecuteBatchAdd(grp.codes)}
+                        disabled={isBatchLoading}
+                        id={`btn-add-theme-${grp.id}`}
+                      >
+                        + 一鍵加入全組 ({grp.codes.join(', ')})
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

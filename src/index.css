@@ -2836,3 +2836,224 @@ body {
   box-shadow: 0 0 10px rgba(34, 197, 94, 0.35);
 }
 
+/* 批次加入與族群快選按鈕 */
+.btn-batch-add-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #ffffff;
+  border: 1px solid rgba(167, 139, 250, 0.5);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+}
+
+.btn-batch-add-pill:hover {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border-color: #c4b5fd;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.4);
+}
+
+/* 批次加入 Modal 面板與元件 */
+.batch-add-panel {
+  max-width: 820px;
+  background: #0f172a;
+  color: #f1f5f9;
+  border: 1px solid #334155;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+}
+
+.batch-section {
+  margin-bottom: 18px;
+}
+
+.batch-section-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+  color: #e2e8f0;
+  margin-bottom: 8px;
+}
+
+.batch-subhint {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.batch-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #f8fafc;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.batch-textarea:focus {
+  outline: none;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+}
+
+.batch-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.btn-execute-batch {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-execute-batch:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-execute-batch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-clear-textarea {
+  background: #334155;
+  color: #cbd5e1;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.btn-clear-textarea:hover:not(:disabled) {
+  background: #475569;
+  color: #ffffff;
+}
+
+.batch-status-banner {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 18px;
+  animation: fadeIn 0.2s ease;
+}
+
+.batch-status-banner.status-success {
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+}
+
+.batch-status-banner.status-loading {
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+}
+
+.batch-status-banner.status-error {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.theme-groups-section {
+  border-top: 1px solid #334155;
+  padding-top: 16px;
+}
+
+.theme-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.theme-group-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.15s ease;
+}
+
+.theme-group-card:hover {
+  border-color: #6366f1;
+  background: rgba(30, 41, 59, 0.95);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.theme-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.theme-group-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #f8fafc;
+}
+
+.theme-group-count {
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.theme-group-desc {
+  font-size: 11.5px;
+  color: #cbd5e1;
+  margin: 4px 0 10px;
+  line-height: 1.5;
+  flex-grow: 1;
+}
+
+.btn-add-theme-group {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #a5b4fc;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.btn-add-theme-group:hover:not(:disabled) {
+  background: #6366f1;
+  color: #ffffff;
+  border-color: #818cf8;
+}
+

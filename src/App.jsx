@@ -117,6 +117,25 @@ export default function App() {
     [dataSourceConfig.finmindToken, taiexData]
   );
 
+  // 批次加入多檔股票或整組族群概念股至選股池與本機快取
+  const handleBatchAddStocks = useCallback(
+    async (rawCodes = []) => {
+      const uniqueCodes = [...new Set(rawCodes.map(c => String(c).trim()).filter(Boolean))];
+      if (uniqueCodes.length === 0) return { success: 0, total: 0 };
+
+      let successCount = 0;
+      for (const code of uniqueCodes) {
+        const existing = stocks.find(s => s.code === code);
+        const updated = await syncSingleStock(code, existing || null, true);
+        if (updated) {
+          successCount++;
+        }
+      }
+      return { success: successCount, total: uniqueCodes.length };
+    },
+    [stocks, syncSingleStock]
+  );
+
   // 批次同步清單中所有個股與大盤加權指數的最新台股正式資料
   const syncAllStocksLive = useCallback(async () => {
     setSyncState(prev => ({
@@ -426,6 +445,7 @@ export default function App() {
             pinnedCodes={pinnedCodes}
             onTogglePin={handleTogglePin}
             onSelectStock={handleSelectStock}
+            onBatchAddStocks={handleBatchAddStocks}
             onOpenFormulaModal={() => setIsFormulaOpen(true)}
           />
         ) : activeView === 'radar' ? (

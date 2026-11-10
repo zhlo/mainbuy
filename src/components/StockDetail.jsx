@@ -1224,7 +1224,12 @@ export default function StockDetail({
                 {(isMarketIndex || subchartPreset >= 5) && (
                   <div className="subchart-panel">
                     <div className="subchart-header">
-                      <span className="subchart-badge">散戶動向(反向指標)</span>
+                      <span
+                        className="subchart-badge"
+                        title="散戶動向模型：資料來自證交所官方每日三大法人買賣超與信用交易融資融券餘額。散戶多為市場反向指標；指標為負/翻綠代表大戶洗盤散戶賣出，指標暴增/翻紅代表散戶追高套牢或逆勢接刀。"
+                      >
+                        👥 散戶動向(反向指標 ℹ️)
+                      </span>
                       <span className="subchart-stat">
                         — 累計({unitLabel}) <strong>{hoveredDay.cumRetailNet?.toLocaleString() ?? '--'}</strong>
                       </span>
