@@ -1005,7 +1005,21 @@ body {
 .preset-num-btns,
 .range-zoom-btns {
   display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wheel-zoom-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
   gap: 3px;
+  padding: 1px 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  margin-right: 4px;
 }
 
 .btn-preset-num,
@@ -1016,6 +1030,15 @@ body {
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
+  border-radius: 2px;
+}
+
+.btn-range.btn-zoom-btn {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 8px;
+  background: var(--bg-primary);
 }
 
 .btn-preset-num.active,
@@ -1197,12 +1220,25 @@ body {
   font-weight: 700;
 }
 
-/* 券商分點買賣超排行表（紅條神秘券商 / 綠條區間賣超15） */
+/* 券商分點區間買賣超雙區塊容器（緊湊緊鄰排版、無任何多餘空白） */
+.broker-tables-split-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px 6px;
+}
+
 .broker-section {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 215px;
+  min-height: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-secondary);
 }
 
 .broker-bar {
@@ -1213,6 +1249,7 @@ body {
   color: #ffffff;
   font-size: 12.5px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .broker-bar.red-bar {
@@ -1243,9 +1280,31 @@ body {
 }
 
 .broker-table-scroll {
-  max-height: 235px;
+  flex: 1;
+  min-height: 130px;
+  max-height: 275px;
   overflow-y: auto;
-  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #64748b transparent;
+}
+
+.broker-table-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.broker-table-scroll::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.broker-table-scroll::-webkit-scrollbar-thumb {
+  background: #64748b;
+  border-radius: 3px;
+}
+
+.broker-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .broker-table {

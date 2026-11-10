@@ -386,9 +386,9 @@ function seededRandom(seed) {
 
 export function generateStockDataset() {
   const tradingDays = [];
-  const baseDate = new Date('2021-03-23T00:00:00');
+  const baseDate = new Date('2026-11-09T00:00:00');
   let d = new Date(baseDate);
-  while (tradingDays.length < 75) {
+  while (tradingDays.length < 250) {
     const dayOfWeek = d.getDay();
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       const yyyy = d.getFullYear();
@@ -839,7 +839,7 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
 // 預設台股加權指數 (TAIEX) 4萬點級別完整 K 線與大盤籌碼資料集（當雲端與 FinMind 載入後會自動覆寫為最新 100% 正式數據）
 export function generateTaiexDataset(stocks = []) {
   const sampleKline = stocks[0]?.kline || [];
-  const totalDays = sampleKline.length || 75;
+  const totalDays = sampleKline.length || 250;
   const targetPrice = 41661.7;
   const targetChange = 1960.06;
   const targetChangePct = 4.94;

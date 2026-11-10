@@ -842,7 +842,9 @@ export async function fetchOfficialStockData(
   token = '',
   includeBrokerPortal = false
 ) {
-  const startDate = '2024-09-01';
+  const oneYearAgo = new Date();
+  oneYearAgo.setDate(oneYearAgo.getDate() - 380);
+  const startDate = `${oneYearAgo.getFullYear()}-${String(oneYearAgo.getMonth() + 1).padStart(2, '0')}-${String(oneYearAgo.getDate()).padStart(2, '0')}`;
 
   const [priceRows, instRows, marginRows, shareRows, perRows, revRows, dirInfo] = await Promise.all([
     queryFinMind('TaiwanStockPrice', code, startDate, token),
@@ -858,7 +860,7 @@ export async function fetchOfficialStockData(
     throw new Error(`查無 ${code} 足夠的近期交易資料`);
   }
 
-  const recentPrices = priceRows.slice(-75);
+  const recentPrices = priceRows.slice(-250);
 
   const instByDate = {};
   instRows.forEach(r => {
@@ -1225,7 +1227,10 @@ export async function fetchOfficialStockData(
 
 // 抓取台股加權指數 (TAIEX) 與台指期 (TX) 最新 4 萬點級別正式 K 線、布林通道與大盤三大法人/散戶/融資融券籌碼
 export async function fetchOfficialTaiexData(token = '', fallbackTaiex = null) {
-  const startDate = '2024-09-01';
+  const oneYearAgo = new Date();
+  oneYearAgo.setDate(oneYearAgo.getDate() - 380);
+  const startDate = `${oneYearAgo.getFullYear()}-${String(oneYearAgo.getMonth() + 1).padStart(2, '0')}-${String(oneYearAgo.getDate()).padStart(2, '0')}`;
+
   const [priceRows, instRows, marginRows, txRows] = await Promise.all([
     queryFinMind('TaiwanStockPrice', 'TAIEX', startDate, token),
     queryFinMind('TaiwanStockTotalInstitutionalInvestors', 'TAIEX', startDate, token).catch(() => []),
@@ -1237,7 +1242,7 @@ export async function fetchOfficialTaiexData(token = '', fallbackTaiex = null) {
     return fallbackTaiex || generateTaiexDataset();
   }
 
-  const recentPrices = priceRows.slice(-75);
+  const recentPrices = priceRows.slice(-250);
 
   // 大盤三大法人買賣超 (單位換算為「億元」：原始為元，除以 1e8)
   const instByDate = {};

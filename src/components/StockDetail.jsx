@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { computePeriodChipAnalysis, BROKER_LIST } from '../data/mockStocks';
 import { fetchSingleBrokerHistoryFromPortal } from '../services/liveStockService';
 
@@ -207,6 +207,28 @@ export default function StockDetail({
       setSelectedBrokerIds([initialBrokerId]);
     }
   }, [initialBrokerId]);
+
+  const klineChartRef = useRef(null);
+
+  // 滑鼠滾輪即時縮放 K 線圖（向前放大看細部、向後縮小看長線，平滑支援 15 根至 250 根全年度 K 棒）
+  useEffect(() => {
+    const el = klineChartRef.current;
+    if (!el) return;
+    const handleWheel = e => {
+      if (Math.abs(e.deltaY) < 1) return;
+      e.preventDefault();
+      const delta = e.deltaY;
+      setChartRange(prev => {
+        const maxBars = Math.max(stock.kline.length, 250);
+        const minBars = 15;
+        const step = Math.max(3, Math.round(prev * 0.12));
+        const next = delta > 0 ? prev + step : prev - step;
+        return Math.min(maxBars, Math.max(minBars, next));
+      });
+    };
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [stock.kline.length]);
 
   const visibleKline = useMemo(() => {
     const start = Math.max(0, stock.kline.length - chartRange);
@@ -836,8 +858,9 @@ export default function StockDetail({
                 )}
               </div>
 
-              {/* K 線 + 布林通道 + 成交量主圖 SVG */}
-              <div className="main-kline-box">
+              {/* K 線與副圖互動縮放區（支援滑鼠滾輪即時縮放與十字查價） */}
+              <div className="kline-interactive-area" ref={klineChartRef}>
+                <div className="main-kline-box">
                 <svg
                   viewBox={`0 0 ${mainChartWidth} ${mainChartHeight}`}
                   className="main-kline-svg"
@@ -1337,8 +1360,9 @@ export default function StockDetail({
                   </div>
                 )}
               </div>
+              </div>
 
-              {/* 底部時間軸與區間切換列 */}
+              {/* 底部時間軸與區間切換列（支援 1月/3月/6月/1年/全部 與滑鼠滾輪縮放提示） */}
               <div className="chart-bottom-bar">
                 <div className="preset-num-btns" title="切換副圖顯示層數">
                   {[1, 2, 3, 4, 5, 6].map(n => (
@@ -1353,23 +1377,57 @@ export default function StockDetail({
                 </div>
                 <div className="timeline-date-badge">{hoveredDay.date}</div>
                 <div className="range-zoom-btns">
+                  <span className="wheel-zoom-hint" title="將游標移至 K 線圖上方滾動滑鼠滾輪即可平滑縮放">
+                    🔍 滾輪縮放 ({visibleKline.length}日)
+                  </span>
                   <button
-                    className={`btn-range ${chartRange === 45 ? 'active' : ''}`}
-                    onClick={() => setChartRange(45)}
+                    className={`btn-range ${chartRange <= 25 ? 'active' : ''}`}
+                    onClick={() => setChartRange(20)}
+                    title="近 1 個月 (約 20 交易日)"
+                  >
+                    1月
+                  </button>
+                  <button
+                    className={`btn-range ${chartRange > 25 && chartRange <= 75 ? 'active' : ''}`}
+                    onClick={() => setChartRange(60)}
+                    title="近 3 個月 (約 60 交易日)"
                   >
                     3月
                   </button>
                   <button
-                    className={`btn-range ${chartRange === 60 ? 'active' : ''}`}
-                    onClick={() => setChartRange(60)}
+                    className={`btn-range ${chartRange > 75 && chartRange <= 150 ? 'active' : ''}`}
+                    onClick={() => setChartRange(120)}
+                    title="近半年 (約 120 交易日)"
                   >
                     6月
                   </button>
                   <button
-                    className={`btn-range ${chartRange === 75 ? 'active' : ''}`}
-                    onClick={() => setChartRange(75)}
+                    className={`btn-range ${chartRange > 150 && chartRange <= 255 ? 'active' : ''}`}
+                    onClick={() => setChartRange(250)}
+                    title="近 1 年完整交易日 (約 250 交易日)"
                   >
                     1年
+                  </button>
+                  <button
+                    className={`btn-range ${chartRange >= (stock.kline.length || 250) ? 'active' : ''}`}
+                    onClick={() => setChartRange(stock.kline.length || 250)}
+                    title="全部歷史 K 棒"
+                  >
+                    全部
+                  </button>
+                  <button
+                    className="btn-range btn-zoom-btn"
+                    onClick={() => setChartRange(prev => Math.max(15, prev - 12))}
+                    title="放大 K 線"
+                  >
+                    +
+                  </button>
+                  <button
+                    className="btn-range btn-zoom-btn"
+                    onClick={() => setChartRange(prev => Math.min(stock.kline.length || 250, prev + 18))}
+                    title="縮小 K 線"
+                  >
+                    −
                   </button>
                 </div>
               </div>
@@ -1945,8 +2003,10 @@ export default function StockDetail({
                 </div>
               </div>
 
-              {/* 上半部券商分點表 */}
-              <div className="broker-section">
+              {/* 券商分點區間買賣超雙區塊（緊鄰上下排版，支援獨立捲軸瀏覽15家券商） */}
+              <div className="broker-tables-split-container">
+                {/* 上半部券商分點表 */}
+                <div className="broker-section">
                 <div className="broker-bar red-bar">
                   <span className="broker-bar-title">
                     {topBrokerFilter === 'mystery'
@@ -2154,7 +2214,8 @@ export default function StockDetail({
                   </table>
                 </div>
               </div>
-            </>
+            </div>
+          </>
             )
           ) : rightTab === '體檢表' ? (
             <div className="right-tab-panel">
