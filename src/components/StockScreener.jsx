@@ -472,6 +472,7 @@ export default function StockScreener({
   const [batchInputText, setBatchInputText] = useState('');
   const [isBatchLoading, setIsBatchLoading] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
+  const [alsoAddToWatchlist, setAlsoAddToWatchlist] = useState(true);
 
   const [activeCategoryDrawer, setActiveCategoryDrawer] = useState(null);
   const [activeStrategyIds, setActiveStrategyIds] = useState([]);
@@ -812,7 +813,16 @@ export default function StockScreener({
     setBatchMessage(`⏳ 正在同步匯入 ${list.length} 檔股票並抓取最新籌碼與分點日報表...`);
     try {
       const res = await onBatchAddStocks(list);
-      setBatchMessage(`🎉 成功匯入 ${res.success} 檔股票至選股池！已自動完成快取與籌碼運算。`);
+      if (alsoAddToWatchlist && onTogglePin) {
+        list.forEach(c => {
+          if (!pinnedCodes.includes(c)) {
+            onTogglePin(c);
+          }
+        });
+      }
+      setBatchMessage(
+        `🎉 成功匯入 ${res.success} 檔股票至選股池！${alsoAddToWatchlist ? '已同步加入自選股 ⭐' : ''}`
+      );
       setTimeout(() => {
         setIsBatchModalOpen(false);
         setIsBatchLoading(false);
@@ -848,11 +858,20 @@ export default function StockScreener({
             id="select-monitor-target"
           >
             <option value="ALL">台股熱門選股池 ({stocks.length})</option>
+            <option value="PINNED">⭐ 我的自選股 ({pinnedCodes.length})</option>
             <option value="LISTED">台股上市</option>
             <option value="OTC">台股上櫃</option>
-            <option value="PINNED">★ 自選置頂股 ({pinnedCodes.length})</option>
             <option value="CACHED">⚡ 曾搜尋快取股 ({cachedCount})</option>
           </select>
+
+          <button
+            className={`btn-watchlist-filter-pill ${marketScope === 'PINNED' ? 'active' : ''}`}
+            onClick={() => setMarketScope(prev => (prev === 'PINNED' ? 'ALL' : 'PINNED'))}
+            title={marketScope === 'PINNED' ? '切換回全部選股池' : '一鍵篩選：僅看我的自選股'}
+            id="btn-quick-filter-watchlist"
+          >
+            ⭐ 自選股 ({pinnedCodes.length})
+          </button>
 
           <button
             className="btn-batch-add-pill"
@@ -1208,7 +1227,7 @@ export default function StockScreener({
           <table className="screener-table" id="screener-data-table">
             <thead>
               <tr>
-                <th className="sticky-col col-pin" title="置頂自選股">置<br />頂</th>
+                <th className="sticky-col col-pin" title="加入/移除我的自選股追蹤">自<br />選</th>
                 <th className="sticky-col col-code sortable" onClick={() => handleSort('code')}>
                   代號 {sortConfig.key === 'code' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
                 </th>
@@ -1391,14 +1410,15 @@ export default function StockScreener({
                         e.stopPropagation();
                         onTogglePin(stock.code);
                       }}
+                      title={isPinned ? '點擊從自選股移除' : '點擊加入我的自選股追蹤'}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isPinned}
-                        onChange={() => {}}
-                        className="pin-checkbox"
-                        aria-label={`置頂 ${stock.name}`}
-                      />
+                      <button
+                        type="button"
+                        className={`btn-star-pin ${isPinned ? 'pinned-active' : ''}`}
+                        aria-label={`自選 ${stock.name}`}
+                      >
+                        {isPinned ? '★' : '☆'}
+                      </button>
                     </td>
                     <td
                       className="sticky-col col-code"
@@ -1635,6 +1655,15 @@ export default function StockScreener({
                   >
                     清空輸入
                   </button>
+                  <label className="batch-watchlist-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={alsoAddToWatchlist}
+                      onChange={e => setAlsoAddToWatchlist(e.target.checked)}
+                      disabled={isBatchLoading}
+                    />
+                    <span>⭐ 同步加入「我的自選股」</span>
+                  </label>
                 </div>
               </div>
 

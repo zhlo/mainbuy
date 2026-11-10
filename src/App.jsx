@@ -36,7 +36,16 @@ export default function App() {
   const [activeView, setActiveView] = useState('screener'); // 'screener' | 'detail' | 'radar'
   const [selectedCode, setSelectedCode] = useState('2330');
   const [initialBrokerId, setInitialBrokerId] = useState('');
-  const [pinnedCodes, setPinnedCodes] = useState(['2330', '2345', '2317', '2454']);
+  // 自選股清單（持久化於 localStorage: mainbuy_watchlist_codes）
+  const [pinnedCodes, setPinnedCodes] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mainbuy_watchlist_codes');
+      return saved ? JSON.parse(saved) : ['2330', '2345', '2317', '2454'];
+    } catch {
+      return ['2330', '2345', '2317', '2454'];
+    }
+  });
+  const [toastMessage, setToastMessage] = useState('');
   const [isFormulaOpen, setIsFormulaOpen] = useState(false);
   const [isDataSourceOpen, setIsDataSourceOpen] = useState(false);
   const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'classic' | 'light'
@@ -302,10 +311,64 @@ export default function App() {
     setActiveView('detail');
   };
 
-  const handleTogglePin = code => {
-    setPinnedCodes(prev =>
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
-    );
+  // 切換加入/移除自選股，並寫入 localStorage 與彈出 Toast
+  const handleTogglePin = useCallback(
+    code => {
+      if (!code || code === 'TAIEX') return;
+      setPinnedCodes(prev => {
+        const isAdding = !prev.includes(code);
+        const next = isAdding ? [...prev, code] : prev.filter(c => c !== code);
+        try {
+          localStorage.setItem('mainbuy_watchlist_codes', JSON.stringify(next));
+        } catch {}
+
+        const target = stocks.find(s => s.code === code);
+        const namePart = target ? ` ${target.name}` : '';
+        setToastMessage(
+          isAdding
+            ? `⭐ 已將【${code}${namePart}】加入我的自選股！`
+            : `已將【${code}${namePart}】從自選股移除`
+        );
+        setTimeout(() => setToastMessage(''), 2500);
+        return next;
+      });
+    },
+    [stocks]
+  );
+
+  // 輸入代號直接加入自選股
+  const handleAddCustomWatchlist = async () => {
+    const q = customLookupCode.trim();
+    if (!q || q.toUpperCase() === 'TAIEX') return;
+
+    let targetCode = q;
+    let existing = stocks.find(s => s.code === q || s.name.includes(q));
+    if (!existing) {
+      setIsLookingUpSingle(true);
+      existing = await syncSingleStock(q, null, true);
+      setIsLookingUpSingle(false);
+    }
+    if (existing) {
+      targetCode = existing.code;
+    }
+
+    setPinnedCodes(prev => {
+      if (prev.includes(targetCode)) {
+        setToastMessage(`ℹ️【${targetCode}${existing ? ` ${existing.name}` : ''}】已在自選股中`);
+        setTimeout(() => setToastMessage(''), 2200);
+        return prev;
+      }
+      const next = [...prev, targetCode];
+      try {
+        localStorage.setItem('mainbuy_watchlist_codes', JSON.stringify(next));
+      } catch {}
+      setToastMessage(
+        `⭐ 成功將【${targetCode}${existing ? ` ${existing.name}` : ''}】加入我的自選股！`
+      );
+      setTimeout(() => setToastMessage(''), 2500);
+      return next;
+    });
+    setCustomLookupCode('');
   };
 
   const currentSurfaceTheme =
@@ -386,7 +449,7 @@ export default function App() {
             <input
               type="text"
               className="live-lookup-input"
-              placeholder="搜尋任意台股代號/名稱(自動快取)..."
+              placeholder="搜尋台股代號/名稱(自動快取)..."
               value={customLookupCode}
               onChange={e => setCustomLookupCode(e.target.value)}
               id="input-live-stock-lookup"
@@ -396,8 +459,19 @@ export default function App() {
               className="btn-live-lookup"
               disabled={isLookingUpSingle}
               id="btn-submit-live-lookup"
+              title="查詢個股即時走勢與主力分點報表"
             >
               {isLookingUpSingle ? '抓取中...' : '🔍 查股&快取'}
+            </button>
+            <button
+              type="button"
+              className="btn-live-add-watchlist"
+              onClick={handleAddCustomWatchlist}
+              disabled={isLookingUpSingle || !customLookupCode.trim()}
+              id="btn-add-custom-watchlist"
+              title="輸入代號直接加入我的自選股並自動快取"
+            >
+              ⭐ 加自選
             </button>
           </form>
 
@@ -459,12 +533,21 @@ export default function App() {
             allStocks={stocks}
             taiexData={taiexData}
             initialBrokerId={initialBrokerId}
+            watchlistCodes={pinnedCodes}
+            onToggleWatchlist={handleTogglePin}
             onSelectStock={handleSelectStock}
             onBackToScreener={() => setActiveView('screener')}
             onOpenFormulaModal={() => setIsFormulaOpen(true)}
           />
         )}
       </main>
+
+      {/* 全局自選股與操作 Toast 提示通知 */}
+      {toastMessage && (
+        <div className="floating-toast-notification" id="app-floating-toast">
+          {toastMessage}
+        </div>
+      )}
 
       {/* 欄位與公式說明彈窗 */}
       <FormulaModal isOpen={isFormulaOpen} onClose={() => setIsFormulaOpen(false)} />

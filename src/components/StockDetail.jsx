@@ -133,11 +133,14 @@ export default function StockDetail({
   allStocks,
   taiexData,
   initialBrokerId,
+  watchlistCodes = [],
+  onToggleWatchlist,
   onSelectStock,
   onBackToScreener,
   onOpenFormulaModal
 }) {
   const isMarketIndex = stock.code === 'TAIEX' || Boolean(stock.isMarketIndex);
+  const isWatchlisted = watchlistCodes.includes(stock.code);
   const unitLabel = isMarketIndex ? '億' : '張';
 
   const [periodDays, setPeriodDays] = useState(1); // 1, 5, 10, 20, 60
@@ -649,6 +652,17 @@ export default function StockDetail({
               ))}
             </select>
             <strong className="stock-title-name">{stock.name}</strong>
+            {!isMarketIndex && (
+              <button
+                className={`btn-watchlist-toggle ${isWatchlisted ? 'in-watchlist' : ''}`}
+                onClick={() => onToggleWatchlist && onToggleWatchlist(stock.code)}
+                title={isWatchlisted ? '點擊從我的自選股移除' : '點擊加入我的自選股追蹤'}
+                id="btn-detail-toggle-watchlist"
+              >
+                <span className="star-icon">{isWatchlisted ? '★' : '☆'}</span>
+                <span>{isWatchlisted ? '已在自選股' : '加入自選股'}</span>
+              </button>
+            )}
             {!isMarketIndex && (
               <button
                 className="mini-badge"
