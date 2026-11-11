@@ -279,9 +279,7 @@ export default function App() {
     if (existing && existing.hasRealBrokerReport) {
       // 已在選股池或快取中且具備分點資料 -> 0 秒切換，背景靜默更新
       setSelectedCode(existing.code);
-      if (existing.realBrokerReports?.[1]?.buyers?.[0]?.id) {
-        setInitialBrokerId(existing.realBrokerReports[1].buyers[0].id);
-      }
+      setInitialBrokerId('');
       setActiveView('detail');
       setCustomLookupCode('');
       syncSingleStock(existing.code, existing, true);
@@ -295,13 +293,12 @@ export default function App() {
 
     if (updated) {
       setSelectedCode(updated.code);
-      if (updated.realBrokerReports?.[1]?.buyers?.[0]?.id) {
-        setInitialBrokerId(updated.realBrokerReports[1].buyers[0].id);
-      }
+      setInitialBrokerId('');
       setActiveView('detail');
       setCustomLookupCode('');
     } else if (existing) {
       setSelectedCode(existing.code);
+      setInitialBrokerId('');
       setActiveView('detail');
       setCustomLookupCode('');
     } else {
@@ -316,6 +313,7 @@ export default function App() {
 
   const handleSelectStock = code => {
     setSelectedCode(code);
+    setInitialBrokerId('');
     setActiveView('detail');
     if (code === 'TAIEX') {
       if (dataSourceConfig.mode === 'live') {
@@ -326,9 +324,6 @@ export default function App() {
     const target = stocks.find(s => s.code === code);
     if (target) {
       saveStockToLocalCache(target);
-      if (target.realBrokerReports?.[1]?.buyers?.[0]?.id) {
-        setInitialBrokerId(target.realBrokerReports[1].buyers[0].id);
-      }
       if (!target.hasRealBrokerReport && dataSourceConfig.mode === 'live') {
         syncSingleStock(code, target, true);
       }
@@ -337,7 +332,7 @@ export default function App() {
 
   const handleSelectStockWithBroker = (code, brokerId) => {
     setSelectedCode(code);
-    if (brokerId) setInitialBrokerId(brokerId);
+    setInitialBrokerId(brokerId || '');
     setActiveView('detail');
   };
 

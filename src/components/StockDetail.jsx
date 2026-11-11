@@ -197,8 +197,7 @@ export default function StockDetail({
   const [bottomBrokerFilter, setBottomBrokerFilter] = useState('topSell15'); // 'topSell15' | 'foreign' | 'gov'
   const [selectedBrokerIds, setSelectedBrokerIds] = useState(() => {
     if (initialBrokerId) return [initialBrokerId];
-    const topBuyerId = stock.realBrokerReports?.[1]?.buyers?.[0]?.id;
-    return [topBuyerId || 'esun-chengzhong'];
+    return [];
   });
   const [dynamicBrokerHistories, setDynamicBrokerHistories] = useState({});
   const [creditSubMode, setCreditSubMode] = useState(isMarketIndex ? 'margin' : 'short'); // 'short' | 'margin'
@@ -295,17 +294,12 @@ export default function StockDetail({
     if (stock.code === 'TAIEX') {
       setCreditSubMode('margin');
     }
-    const topBuyerId = stock.realBrokerReports?.[1]?.buyers?.[0]?.id;
-    if (topBuyerId && !initialBrokerId) {
-      setSelectedBrokerIds([topBuyerId]);
-    }
-  }, [stock.code, stock.kline.length, stock.realBrokerReports, initialBrokerId]);
-
-  useEffect(() => {
     if (initialBrokerId) {
       setSelectedBrokerIds([initialBrokerId]);
+    } else {
+      setSelectedBrokerIds([]);
     }
-  }, [initialBrokerId]);
+  }, [stock.code, stock.kline.length, initialBrokerId]);
 
   const klineChartRef = useRef(null);
 
@@ -454,7 +448,21 @@ export default function StockDetail({
 
   // 計算所勾選券商分點（可單選或複選「組群」）在可見區間內的每日買賣超與累計買賣超及成本線
   const selectedBrokerDailyData = useMemo(() => {
-    const ids = selectedBrokerIds.length > 0 ? selectedBrokerIds : ['esun-chengzhong'];
+    if (selectedBrokerIds.length === 0) {
+      return visibleKline.map(day => ({
+        date: day.date,
+        close: day.close,
+        buy: 0,
+        sell: 0,
+        avgBuy: day.close,
+        brokerNet: null,
+        brokerCum: null,
+        brokerCostLine: null,
+        profitWan: 0,
+        chipPending: false
+      }));
+    }
+    const ids = selectedBrokerIds;
     let runningCum = 0;
     let runningCostSum = 0;
     let runningBuyLots = 0;
@@ -522,20 +530,33 @@ export default function StockDetail({
     selectedBrokerDailyData[localHoverIdx] ||
     selectedBrokerDailyData[selectedBrokerDailyData.length - 1];
 
+  // 單選切換：若點擊已勾選的券商則直接取消（回到不勾選）；若點擊其他券商則 1 鍵直接切換
   const toggleBrokerCheck = brokerId => {
-    setSelectedBrokerIds([brokerId]);
+    setSelectedBrokerIds(prev => {
+      if (prev.length === 1 && prev[0] === brokerId) {
+        return [];
+      }
+      return [brokerId];
+    });
     setMainSubchartFocus('broker');
   };
 
+  // 複選核取方塊：點擊已勾選則取消該間，支援全部取消至 0 間
   const toggleBrokerMulti = (brokerId, e) => {
     e.stopPropagation();
     setSelectedBrokerIds(prev => {
       if (prev.includes(brokerId)) {
-        return prev.length > 1 ? prev.filter(id => id !== brokerId) : prev;
+        return prev.filter(id => id !== brokerId);
       }
       return [...prev, brokerId];
     });
     setMainSubchartFocus('broker');
+  };
+
+  // 一鍵取消所有分點勾選
+  const handleClearAllBrokers = e => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    setSelectedBrokerIds([]);
   };
 
   // 診斷所勾選分點近期進出行為特徵（連續買超、單日急買、轉賣倒貨、波段鎖碼）
@@ -629,9 +650,12 @@ export default function StockDetail({
     .map((d, i) => `${(padLeft + i * stepX + stepX / 2).toFixed(1)},${priceToY(d.ma60).toFixed(1)}`)
     .join(' ');
 
-  const brokerCostPts = selectedBrokerDailyData
-    .map((d, i) => `${(padLeft + i * stepX + stepX / 2).toFixed(1)},${priceToY(d.brokerCostLine).toFixed(1)}`)
-    .join(' ');
+  const brokerCostPts = selectedBrokerIds.length > 0
+    ? selectedBrokerDailyData
+        .filter(d => d.brokerCostLine !== null && d.brokerCostLine !== undefined && Number.isFinite(d.brokerCostLine))
+        .map((d, i) => `${(padLeft + i * stepX + stepX / 2).toFixed(1)},${priceToY(d.brokerCostLine).toFixed(1)}`)
+        .join(' ')
+    : '';
 
   const hoverX = padLeft + localHoverIdx * stepX + stepX / 2;
 
@@ -1069,9 +1093,15 @@ export default function StockDetail({
                   </div>
                 ) : overlayMode === 'brokerCost' && !isMarketIndex ? (
                   <div className="overlay-legend">
-                    <span className="legend-item" style={{ color: '#7c3aed', fontWeight: 700 }}>
-                      — 【{selectedBrokerNames}】成本線 {hoveredBrokerPoint.brokerCostLine} 元
-                    </span>
+                    {selectedBrokerIds.length > 0 ? (
+                      <span className="legend-item" style={{ color: '#7c3aed', fontWeight: 700 }}>
+                        — 【{selectedBrokerNames}】成本線 {hoveredBrokerPoint.brokerCostLine ?? '--'} 元
+                      </span>
+                    ) : (
+                      <span className="legend-item" style={{ color: '#7c3aed' }}>
+                        — 請於右側買賣超表格勾選任一券商以顯示成本線
+                      </span>
+                    )}
                     <span className="legend-item red">— 20MA {hoveredDay.ma20}</span>
                   </div>
                 ) : (
@@ -1195,7 +1225,9 @@ export default function StockDetail({
                   ) : overlayMode === 'brokerCost' && !isMarketIndex ? (
                     <>
                       <polyline fill="none" stroke="#ef4444" strokeWidth="1.1" strokeDasharray="3 3" points={bollMidPts} />
-                      <polyline fill="none" stroke="#7c3aed" strokeWidth="2.2" points={brokerCostPts} />
+                      {selectedBrokerIds.length > 0 && brokerCostPts && (
+                        <polyline fill="none" stroke="#7c3aed" strokeWidth="2.2" points={brokerCostPts} />
+                      )}
                     </>
                   ) : (
                     <>
@@ -1320,15 +1352,30 @@ export default function StockDetail({
                     ) : (
                       <>
                         <div className="subchart-focus-toggle-group">
+                          {selectedBrokerIds.length > 0 ? (
+                            <>
+                              <button
+                                className={`btn-subchart-focus ${mainSubchartFocus === 'broker' ? 'active' : ''}`}
+                                onClick={() => setMainSubchartFocus('broker')}
+                                title="查看右側所勾選分點的每日買賣超柱狀與累計張數"
+                              >
+                                🎯 鎖定分點：{selectedBrokerNames}
+                              </button>
+                              <button
+                                className="btn-clear-broker-sel"
+                                onClick={handleClearAllBrokers}
+                                title="取消勾選所有分點，回到全市場主力"
+                              >
+                                ✕ 取消選取
+                              </button>
+                            </>
+                          ) : (
+                            <span className="unselected-broker-prompt" title="點擊右側買賣超表格任一券商即可查看其進出軌跡">
+                              💡 未勾選特定分點（右側表格點任一券商可鎖定）
+                            </span>
+                          )}
                           <button
-                            className={`btn-subchart-focus ${mainSubchartFocus === 'broker' ? 'active' : ''}`}
-                            onClick={() => setMainSubchartFocus('broker')}
-                            title="查看右側所勾選分點的每日買賣超柱狀與累計張數"
-                          >
-                            🎯 鎖定分點：{selectedBrokerNames}
-                          </button>
-                          <button
-                            className={`btn-subchart-focus ${mainSubchartFocus === 'market' ? 'active' : ''}`}
+                            className={`btn-subchart-focus ${mainSubchartFocus === 'market' || selectedBrokerIds.length === 0 ? 'active' : ''}`}
                             onClick={() => setMainSubchartFocus('market')}
                             title="切換回全市場買超前15減賣超前15的主力合計買賣超"
                           >
@@ -1336,7 +1383,7 @@ export default function StockDetail({
                           </button>
                         </div>
 
-                        {mainSubchartFocus === 'broker' ? (
+                        {!isMarketIndex && mainSubchartFocus === 'broker' && selectedBrokerIds.length > 0 ? (
                           <>
                             {selectedBrokerBehavior && (
                               <span className={`badge-broker-behavior ${selectedBrokerBehavior.type}`}>
@@ -1376,12 +1423,12 @@ export default function StockDetail({
                     )}
                   </div>
                   <SubIndicatorChart
-                    data={!isMarketIndex && mainSubchartFocus === 'broker' ? selectedBrokerDailyData : visibleKline}
+                    data={!isMarketIndex && mainSubchartFocus === 'broker' && selectedBrokerIds.length > 0 ? selectedBrokerDailyData : visibleKline}
                     hoverIdx={localHoverIdx}
                     onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
-                    barKey={!isMarketIndex && mainSubchartFocus === 'broker' ? 'brokerNet' : 'mainNet'}
-                    lineKey={!isMarketIndex && mainSubchartFocus === 'broker' ? 'brokerCum' : 'cumMainNet'}
-                    lineColor={!isMarketIndex && mainSubchartFocus === 'broker' ? '#7c3aed' : '#8b5cf6'}
+                    barKey={!isMarketIndex && mainSubchartFocus === 'broker' && selectedBrokerIds.length > 0 ? 'brokerNet' : 'mainNet'}
+                    lineKey={!isMarketIndex && mainSubchartFocus === 'broker' && selectedBrokerIds.length > 0 ? 'brokerCum' : 'cumMainNet'}
+                    lineColor={!isMarketIndex && mainSubchartFocus === 'broker' && selectedBrokerIds.length > 0 ? '#7c3aed' : '#8b5cf6'}
                   />
                 </div>
 
@@ -1571,7 +1618,7 @@ export default function StockDetail({
                 )}
 
                 {/* 8. 副圖對照：若頂部已鎖定分點，此處對照全市場主力買賣超；若頂部為全市場主力，此處顯示分點進出 */}
-                {leftTab !== '分點K線' && !isMarketIndex && (
+                {leftTab !== '分點K線' && !isMarketIndex && selectedBrokerIds.length > 0 && (
                   <div className="subchart-panel broker-sync-panel">
                     <div className="subchart-header">
                       {mainSubchartFocus === 'broker' ? (
@@ -2284,6 +2331,15 @@ export default function StockDetail({
                     </small>
                   </span>
                   <div className="broker-bar-right">
+                    {selectedBrokerIds.length > 0 && (
+                      <button
+                        className="btn-broker-bar-clear"
+                        onClick={handleClearAllBrokers}
+                        title="取消所有勾選分點"
+                      >
+                        ✕ 取消勾選 ({selectedBrokerIds.length})
+                      </button>
+                    )}
                     <span className="broker-filter-label" onClick={onOpenFormulaModal} style={{ cursor: 'pointer' }} title="點擊查看分點區間損益計算公式">
                       ? 損益公式
                     </span>
@@ -2309,7 +2365,18 @@ export default function StockDetail({
                   <table className="broker-table" id="table-top-brokers">
                     <thead>
                       <tr>
-                        <th className="b-col-check" title="勾選連動左側「主力買賣超 / 分點進出」副圖">✓</th>
+                        <th
+                          className="b-col-check"
+                          title={selectedBrokerIds.length > 0 ? "點擊取消所有勾選分點" : "點擊任一券商列可直接切換或勾選"}
+                          onClick={selectedBrokerIds.length > 0 ? handleClearAllBrokers : undefined}
+                          style={{ cursor: selectedBrokerIds.length > 0 ? 'pointer' : 'default' }}
+                        >
+                          {selectedBrokerIds.length > 0 ? (
+                            <button className="btn-table-th-clear" title="取消所有勾選">✕</button>
+                          ) : (
+                            '✓'
+                          )}
+                        </th>
                         <th className="b-col-name">券商名稱 / 屬性分類</th>
                         <th>買賣超</th>
                         <th>買張</th>
@@ -2388,6 +2455,15 @@ export default function StockDetail({
                     </small>
                   </span>
                   <div className="broker-bar-right">
+                    {selectedBrokerIds.length > 0 && (
+                      <button
+                        className="btn-broker-bar-clear"
+                        onClick={handleClearAllBrokers}
+                        title="取消所有勾選分點"
+                      >
+                        ✕ 取消勾選 ({selectedBrokerIds.length})
+                      </button>
+                    )}
                     <span className="broker-filter-label" onClick={onOpenFormulaModal} style={{ cursor: 'pointer' }} title="點擊查看分點區間損益計算公式">
                       ? 損益公式
                     </span>
@@ -2411,7 +2487,18 @@ export default function StockDetail({
                   <table className="broker-table" id="table-bottom-brokers">
                     <thead>
                       <tr>
-                        <th className="b-col-check" title="勾選連動左側「主力買賣超 / 分點進出」副圖">✓</th>
+                        <th
+                          className="b-col-check"
+                          title={selectedBrokerIds.length > 0 ? "點擊取消所有勾選分點" : "點擊任一券商列可直接切換或勾選"}
+                          onClick={selectedBrokerIds.length > 0 ? handleClearAllBrokers : undefined}
+                          style={{ cursor: selectedBrokerIds.length > 0 ? 'pointer' : 'default' }}
+                        >
+                          {selectedBrokerIds.length > 0 ? (
+                            <button className="btn-table-th-clear" title="取消所有勾選">✕</button>
+                          ) : (
+                            '✓'
+                          )}
+                        </th>
                         <th className="b-col-name">券商名稱 / 屬性分類</th>
                         <th>買賣超</th>
                         <th>買張</th>
@@ -2495,8 +2582,19 @@ export default function StockDetail({
             </div>
           ) : rightTab === '分點細膩' ? (
             <div className="right-tab-panel">
-              <h3>🔍 分點逐日進出明細：【{selectedBrokerNames}】</h3>
-              <p className="tab-subdesc">可於「籌碼分析」頁籤點擊任意券商切換檢視對象</p>
+              {selectedBrokerIds.length > 0 ? (
+                <>
+                  <h3>🔍 分點逐日進出明細：【{selectedBrokerNames}】</h3>
+                  <p className="tab-subdesc">可於「籌碼分析」頁籤點擊任意券商切換檢視對象，或於標頭取消勾選</p>
+                </>
+              ) : (
+                <>
+                  <h3>🔍 分點逐日進出明細</h3>
+                  <p className="tab-subdesc" style={{ color: 'var(--text-muted)' }}>
+                    💡 目前未勾選特定券商分點，請於【籌碼分析】頁籤點擊任意券商分點列以展開其逐日明細
+                  </p>
+                </>
+              )}
               <div className="broker-table-scroll" style={{ maxHeight: '520px' }}>
                 <table className="broker-table">
                   <thead>
