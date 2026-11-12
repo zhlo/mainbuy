@@ -13,9 +13,22 @@ import {
   MONEYDJ_RANGE_MAP,
   fetchOfficialStockData,
   fetchOfficialTaiexData,
+  fetchYahooKlineSeries,
   parseMoneyDjBrokerHtml,
   parseMoneyDjSingleBrokerHistoryHtml
 } from '../src/services/liveStockService.js';
+
+function classifyCandleType(open, high, low, close) {
+  if (close < open) return 'black-body';
+  if (Math.abs(close - open) <= close * 0.002) {
+    return high - close > close - low ? 'doji-bottom' : 'red-t';
+  }
+  const body = Math.abs(close - open);
+  const range = Math.max(0.01, high - low);
+  if (body / range > 0.65) return 'red-full';
+  if (high - close > body) return 'red-high';
+  return 'red-cross';
+}
 
 async function fetchDirectBrokerHtml(code, days, currentPrice) {
   const rangeIdx = MONEYDJ_RANGE_MAP[days] || 1;
@@ -109,8 +122,18 @@ async function crawlSingleStock(base, token) {
   try {
     stock = await fetchOfficialStockData(base.code, base, token, false);
   } catch (err) {
-    console.warn(`⚠️ ${base.code} ${base.name} 公開 API 抓取失敗 (${err.message})，使用基準 K 線繼續抓取券商分點報表`);
-    stock = { ...base };
+    console.warn(`⚠️ ${base.code} ${base.name} API 異常 (${err.message})，使用 Yahoo Finance 100% 真實 K 線備援`);
+    const yahooK = await fetchYahooKlineSeries(base.code, base.market);
+    const lastY = yahooK[yahooK.length - 1];
+    stock = {
+      ...base,
+      kline: yahooK,
+      price: lastY.close,
+      volume: lastY.volume,
+      change: lastY.change,
+      changePct: lastY.changePct,
+      latestTradeDate: lastY.date
+    };
   }
 
   try {
@@ -182,6 +205,17 @@ async function crawlSingleStock(base, token) {
     // 重新計算包含真實主力分點差額的動能轉折指標 (會自動忽略最新盤中/未公布籌碼之留空日)
     stock.momentum = computeStockMomentum(stock.kline);
 
+    // 校正為 100% 真實最新 K 棒價格與漲跌型態
+    const latestKBar = stock.kline[stock.kline.length - 1];
+    if (latestKBar) {
+      stock.price = latestKBar.close;
+      stock.change = latestKBar.change;
+      stock.changePct = latestKBar.changePct;
+      stock.volume = latestKBar.volume;
+      stock.candleType = classifyCandleType(latestKBar.open, latestKBar.high, latestKBar.low, latestKBar.close);
+      stock.latestTradeDate = latestKBar.date;
+    }
+
     // 移除龐大的合成 brokerSeries 交由前端載入時毫秒級動態還原，使 JSON 檔案縮小 95%
     delete stock.brokerSeries;
 
@@ -192,15 +226,13 @@ async function crawlSingleStock(base, token) {
     );
     return stock;
   } catch (err) {
-    console.warn(`⚠️ ${base.code} ${base.name} 抓取失敗，保留基準資料:`, err.message);
-    const slimBase = { ...base };
-    delete slimBase.brokerSeries;
-    return slimBase;
+    console.error(`❌ ${base.code} ${base.name} 抓取徹底失敗:`, err.message);
+    throw err;
   }
 }
 
 async function main() {
-  console.log('🚀 開始從證交所 / 櫃買中心 / 券商分點網站 / FinMind 批次抓取最新台股正式資料與加權指數...');
+  console.log('🚀 開始從證交所 / 櫃買中心 / 券商分點網站 / FinMind / Yahoo Finance 批次抓取最新台股 100% 正式資料與加權指數...');
   const baseStocks = generateStockDataset();
   const token = process.env.FINMIND_TOKEN || '';
   const updatedStocks = [];
@@ -222,8 +254,8 @@ async function main() {
     `📊 加權指數 TAIEX: ${taiex.price} (${taiex.change >= 0 ? '+' : ''}${taiex.change}, ${taiex.changePct}%), 台指期: ${taiex.futuresPrice || taiex.price}`
   );
 
-  // 每次並行抓取 5 檔，兼顧速度與穩定度
-  const BATCH_SIZE = 5;
+  // 每次並行抓取 4 檔，兼顧速度與穩定度
+  const BATCH_SIZE = 4;
   for (let i = 0; i < baseStocks.length; i += BATCH_SIZE) {
     const batch = baseStocks.slice(i, i + BATCH_SIZE);
     const results = await Promise.all(batch.map(b => crawlSingleStock(b, token)));
@@ -233,6 +265,26 @@ async function main() {
       }
       updatedStocks.push(stock);
     });
+  }
+
+  // 嚴格自動把關：檢驗重點標的真實性
+  const s1802 = updatedStocks.find(s => s.code === '1802');
+  if (!s1802) throw new Error('缺少 1802 台玻資料！');
+  const k1802 = s1802.kline;
+  const bar1106 = k1802.find(d => d.compactDate === '20261106');
+  const bar1109 = k1802.find(d => d.compactDate === '20261109');
+  const bar1110 = k1802.find(d => d.compactDate === '20261110');
+  const bar1111 = k1802.find(d => d.compactDate === '20261111');
+  console.log('\n==========================================');
+  console.log('🔍 嚴格檢查 1802 台玻重要交易日收盤價：');
+  console.log(`- 11/06: ${bar1106?.close} (預期 57.8) -> ${bar1106?.close === 57.8 ? 'PASS ✅' : 'FAIL ❌'}`);
+  console.log(`- 11/09: ${bar1109?.close} (預期 63.5) -> ${bar1109?.close === 63.5 ? 'PASS ✅' : 'FAIL ❌'}`);
+  console.log(`- 11/10: ${bar1110?.close} (預期 69.8) -> ${bar1110?.close === 69.8 ? 'PASS ✅' : 'FAIL ❌'}`);
+  console.log(`- 11/11: ${bar1111?.close} (預期 76.7) -> ${bar1111?.close === 76.7 ? 'PASS ✅' : 'FAIL ❌'}`);
+  console.log('==========================================\n');
+
+  if (bar1106?.close !== 57.8 || bar1109?.close !== 63.5 || bar1110?.close !== 69.8 || bar1111?.close !== 76.7) {
+    throw new Error('❌ 1802 台玻 K 線資料校驗不通過，與官方市場成交記錄不符！');
   }
 
   const outPath = path.resolve(process.cwd(), 'public/live-data.json');
@@ -247,7 +299,7 @@ async function main() {
     const altPath = path.resolve(process.cwd(), 'zhlo/mainbuy/public/live-data.json');
     await fs.writeFile(altPath, payload, 'utf8');
   } catch {}
-  console.log(`🎉 已成功寫入 ${updatedStocks.length} 檔正式資料與加權指數至 ${outPath} (最新交易日: ${taiex.latestTradeDate || latestDate})`);
+  console.log(`🎉 已成功寫入 ${updatedStocks.length} 檔 100% 正式真實資料與加權指數至 ${outPath} (最新交易日: ${taiex.latestTradeDate || latestDate})`);
 }
 
 main().catch(err => {

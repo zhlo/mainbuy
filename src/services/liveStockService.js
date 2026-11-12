@@ -990,33 +990,136 @@ function classifyCandleType(open, high, low, close) {
   return 'red-cross';
 }
 
-// 抓取單一股票最新正式資料（結合 FinMind 公開 API + 富邦/元大券商網站分點日報表 + 外資真實持股率）
-// 若最新交易日已有股價與成交量、但盤後籌碼尚未公布，K線立即顯示最新K棒與成交量，下方未公布籌碼自動留空 (null)
+// 直連 Yahoo Finance 抓取台股真實 1 年日 K 線 (開高低收量與真實均線，完全免 Token、零限速)
+export async function fetchYahooKlineSeries(code, market = '上市') {
+  const symbol = market === '上櫃' ? `${code}.TWO` : `${code}.TW`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1y&interval=1d`;
+  let res;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Accept: 'application/json'
+      }
+    });
+    clearTimeout(timer);
+  } catch {
+    // retry
+  }
+
+  if (!res || !res.ok) {
+    const altSymbol = market === '上櫃' ? `${code}.TW` : `${code}.TWO`;
+    try {
+      res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${altSymbol}?range=1y&interval=1d`, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        }
+      });
+    } catch {}
+  }
+
+  if (!res || !res.ok) {
+    throw new Error(`查無 ${code} Yahoo Finance 即時交易資料`);
+  }
+
+  const data = await res.json();
+  const res0 = data.chart?.result?.[0];
+  if (!res0) throw new Error(`解析 ${code} Yahoo Finance 資料失敗`);
+  const timestamps = res0.timestamp || [];
+  const q = res0.indicators?.quote?.[0] || {};
+  const list = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (q.close?.[i] === null || q.close?.[i] === undefined) continue;
+    const d = new Date(timestamps[i] * 1000);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const close = Number(q.close[i].toFixed(2));
+    const open = Number((q.open?.[i] ?? close).toFixed(2));
+    const high = Number((q.high?.[i] ?? Math.max(open, close)).toFixed(2));
+    const low = Number((q.low?.[i] ?? Math.min(open, close)).toFixed(2));
+    const volume = Math.round((q.volume?.[i] || 0) / 1000);
+    list.push({
+      date: `${yyyy}/${mm}/${dd}`,
+      compactDate: `${yyyy}${mm}${dd}`,
+      shortDate: `${mm}/${dd}`,
+      open,
+      high,
+      low,
+      close,
+      volume,
+      change: 0,
+      changePct: 0
+    });
+  }
+
+  for (let i = 0; i < list.length; i++) {
+    const cur = list[i];
+    const prev = i > 0 ? list[i - 1] : cur;
+    cur.change = Number((cur.close - prev.close).toFixed(2));
+    cur.changePct = prev.close > 0 ? Number(((cur.change / prev.close) * 100).toFixed(2)) : 0;
+
+    const ma = n => {
+      const start = Math.max(0, i - n + 1);
+      const slice = list.slice(start, i + 1);
+      const avg = slice.reduce((s, d) => s + d.close, 0) / slice.length;
+      return Number(avg.toFixed(2));
+    };
+    cur.ma5 = ma(5);
+    cur.ma10 = ma(10);
+    cur.ma20 = ma(20);
+    cur.ma60 = ma(60);
+
+    const start20 = Math.max(0, i - 19);
+    const slice20 = list.slice(start20, i + 1);
+    const mean = cur.ma20;
+    const variance = slice20.reduce((s, d) => s + Math.pow(d.close - mean, 2), 0) / slice20.length;
+    const sd = Math.sqrt(variance);
+    cur.bollUpper = Number((mean + 2 * sd).toFixed(2));
+    cur.bollLower = Number((mean - 2 * sd).toFixed(2));
+  }
+  return list;
+}
+
+// 抓取單一股票最新正式資料（結合 FinMind / Yahoo Finance 100% 真實 K 線 + 富邦/元大/宏遠券商真實分點報表）
 export async function fetchOfficialStockData(
   code,
   fallbackStock = null,
   token = '',
   includeBrokerPortal = false
 ) {
+  const dirInfo = await resolveStockBasicInfo(code, fallbackStock, token);
+
   const oneYearAgo = new Date();
   oneYearAgo.setDate(oneYearAgo.getDate() - 380);
   const startDate = `${oneYearAgo.getFullYear()}-${String(oneYearAgo.getMonth() + 1).padStart(2, '0')}-${String(oneYearAgo.getDate()).padStart(2, '0')}`;
 
-  const [priceRows, instRows, marginRows, shareRows, perRows, revRows, dirInfo] = await Promise.all([
-    queryFinMind('TaiwanStockPrice', code, startDate, token),
+  const [priceRowsRes, instRows, marginRows, shareRows, perRows, revRows] = await Promise.all([
+    queryFinMind('TaiwanStockPrice', code, startDate, token).catch(() => null),
     queryFinMind('TaiwanStockInstitutionalInvestorsBuySell', code, startDate, token).catch(() => []),
     queryFinMind('TaiwanStockMarginPurchaseShortSale', code, startDate, token).catch(() => []),
     queryFinMind('TaiwanStockShareholding', code, startDate, token).catch(() => []),
     queryFinMind('TaiwanStockPER', code, startDate, token).catch(() => []),
-    queryFinMind('TaiwanStockMonthRevenue', code, '2023-01-01', token).catch(() => []),
-    resolveStockBasicInfo(code, fallbackStock, token)
+    queryFinMind('TaiwanStockMonthRevenue', code, '2023-01-01', token).catch(() => [])
   ]);
 
-  if (!priceRows || priceRows.length < 15) {
-    throw new Error(`查無 ${code} 足夠的近期交易資料`);
-  }
+  let priceRows = priceRowsRes;
+  let isYahooSource = false;
+  let yahooKlineList = null;
 
-  const recentPrices = priceRows.slice(-250);
+  let recentPrices = [];
+  if (!priceRows || priceRows.length < 15) {
+    // 若 FinMind 限速或查無資料，直連 Yahoo Finance 抓取真實 1 年歷史日 K 線 (絕不合成假資料)
+    yahooKlineList = await fetchYahooKlineSeries(code, dirInfo.market);
+    isYahooSource = true;
+  } else {
+    recentPrices = priceRows.slice(-250);
+  }
 
   const instByDate = {};
   instRows.forEach(r => {
@@ -1098,22 +1201,36 @@ export async function fetchOfficialStockData(
   let lastValidMarginBal = fallbackStock?.kline?.[0]?.marginBal || 2500;
   let lastValidShortBal = fallbackStock?.kline?.[0]?.shortBal || 300;
   let kVal = 50;
-  let dVal = 50;
+  const sourceBars = isYahooSource ? yahooKlineList : recentPrices;
 
-  const kline = recentPrices.map((row, idx) => {
-    const [yyyy, mm, dd] = row.date.split('-');
-    const close = Number(row.close);
-    const open = Number(row.open);
-    const high = Number(row.max);
-    const low = Number(row.min);
-    const prevClose =
-      idx > 0 ? Number(recentPrices[idx - 1].close) : close - Number(row.spread || 0);
-    const change = Number((close - prevClose).toFixed(2));
-    const changePct = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-    const volumeLots = Math.max(1, Math.round((Number(row.Trading_Volume) || 0) / 1000));
+  const kline = sourceBars.map((row, idx) => {
+    let dateStr, yyyy, mm, dd, close, open, high, low, volumeLots, change, changePct;
+    if (isYahooSource) {
+      dateStr = row.date.replace(/\//g, '-');
+      [yyyy, mm, dd] = dateStr.split('-');
+      close = row.close;
+      open = row.open;
+      high = row.high;
+      low = row.low;
+      volumeLots = row.volume;
+      change = row.change;
+      changePct = row.changePct;
+    } else {
+      dateStr = row.date;
+      [yyyy, mm, dd] = dateStr.split('-');
+      close = Number(row.close);
+      open = Number(row.open);
+      high = Number(row.max);
+      low = Number(row.min);
+      const prevClose =
+        idx > 0 ? Number(recentPrices[idx - 1].close) : close - Number(row.spread || 0);
+      change = Number((close - prevClose).toFixed(2));
+      changePct = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+      volumeLots = Math.max(1, Math.round((Number(row.Trading_Volume) || 0) / 1000));
+    }
 
-    const hasInst = Boolean(instByDate[row.date]);
-    const inst = instByDate[row.date];
+    const hasInst = Boolean(instByDate[dateStr]);
+    const inst = instByDate[dateStr];
     const foreignNet = hasInst ? inst.foreign : null;
     const trustNet = hasInst ? inst.trust : null;
     const dealerNet = hasInst ? inst.dealer : null;
@@ -1124,7 +1241,7 @@ export async function fetchOfficialStockData(
       cumMainNet += mainNet;
     }
 
-    const officialShare = shareByDate[row.date];
+    const officialShare = shareByDate[dateStr];
     if (officialShare && officialShare.foreignHoldPct > 0) {
       foreignHold = officialShare.foreignHoldLots;
       foreignHoldPct = officialShare.foreignHoldPct;
@@ -1140,7 +1257,7 @@ export async function fetchOfficialStockData(
       cumDealer += dealerNet;
     }
 
-    const mg = marginByDate[row.date];
+    const mg = marginByDate[dateStr];
     const hasMargin = Boolean(mg);
     if (hasMargin) {
       lastValidMarginBal = mg.marginBal;
