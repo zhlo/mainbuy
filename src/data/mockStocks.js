@@ -126,6 +126,12 @@ export function classifyBrokerAttributes(brokerName, idx = 0, metrics = null) {
 // 欄位介紹與公式說明
 export const FORMULA_DEFINITIONS = [
   {
+    key: 'bollingerBandwidthAndSlope',
+    title: '帶寬% 與 斜率%（布林上軌/下軌斜率、月線斜率）',
+    formula: '布林帶寬% = (今天上通道 / 今天下通道 - 1) × 100%\n上通道斜率% = (今天上通道 / 昨天上通道 - 1) × 100%\n下通道斜率% = (今天下通道 / 昨天下通道 - 1) × 100%\n月線斜率% = (今天月線 / 昨天月線 - 1) × 100%',
+    description: '帶寬衡量布林軌道上下通道的間距百分比，數值越小代表通道極度收斂壓縮待變，數值放大代表通道開口擴張；斜率大於 0（紅字）代表通道或均線方向往上，斜率小於 0（綠字）代表通道或均線方向向下。'
+  },
+  {
     key: 'bias',
     title: '乖年【乖離年線】、乖季【乖離季線】、乖月【乖離月線】',
     formula: '(股價 - 均線價格) / 均線價格 × 100%',
@@ -1066,6 +1072,8 @@ export function generateTaiexDataset(stocks = []) {
     volume: 8639,
     warrantAmt: 18500,
     monthSlope: 0.4,
+    upperSlope: 0.52,
+    lowerSlope: -0.18,
     lastWeekSlope: 0.9,
     nextWeekSlope: 0.3,
     bandWidth: 12,

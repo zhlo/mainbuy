@@ -273,9 +273,10 @@ const PRESET_STRATEGIES = {
     { id: 'low-pb-company', label: '股淨比 < 0.5 公司派大買', desc: '股價淨值比低於 0.5 且主力集中買超，容易是長線低點', check: s => s.pb < 0.5 && s.main1 > 0 }
   ],
   tech: [
-    { id: 'boll-squeeze', label: '布林通道壓縮突破 (帶寬 ≤ 12 & 位階 ≥ 6)', desc: '布林帶寬收斂後向上突破通道上軌', check: s => s.bandWidth <= 12 && s.bandPos >= 6 },
-    { id: 'band-expand', label: '高帶寬強勢噴出 (帶寬 ≥ 20)', desc: '布林帶寬張口 ≥ 20 強勢股', check: s => s.bandWidth >= 20 },
-    { id: 'slope-up', label: '月線與週線斜率同步翻正', desc: '月線斜率 > 0 且上週斜率 > 0', check: s => s.monthSlope > 0 && s.lastWeekSlope > 0 },
+    { id: 'boll-squeeze', label: '布林通道壓縮突破 (帶寬 ≤ 12% & 位階 ≥ 6)', desc: '布林帶寬收斂後向上突破通道上軌', check: s => s.bandWidth <= 12 && s.bandPos >= 6 },
+    { id: 'band-expand', label: '高帶寬強勢噴出 (帶寬 ≥ 20%)', desc: '布林帶寬張口 ≥ 20% 強勢股', check: s => s.bandWidth >= 20 },
+    { id: 'slope-up', label: '月線與上軌斜率同步翻正 (斜率 > 0)', desc: '月線斜率 > 0 且上通道斜率 > 0 同步向上', check: s => s.monthSlope > 0 && s.upperSlope > 0 },
+    { id: 'slope-channel-up', label: '布林上下軌同步向上擴張', desc: '上軌斜率 > 0 且下軌斜率 > 0 多頭通道上揚', check: s => s.upperSlope > 0 && s.lowerSlope > 0 },
     { id: 'high-bias', label: '強勢突破年線 (乖離年線 ≥ 20%)', desc: '股價站穩年線之上且正乖離強勁', check: s => s.biasYear >= 20 }
   ],
   intraday: [
@@ -1406,9 +1407,41 @@ export default function StockScreener({
 
                 {showFig1Cols && (
                   <>
-                    <th className="sortable" onClick={() => handleSort('monthSlope')}>月線<br />斜率</th>
-                    <th className="sortable" onClick={() => handleSort('bandWidth')} title="布林通道帶寬(%)">帶寬</th>
-                    <th className="sortable" onClick={() => handleSort('bandPos')} title="布林通道相對位階">位階</th>
+                    <th
+                      className="sortable"
+                      onClick={() => handleSort('monthSlope')}
+                      title="月線斜率%：(今天月線 / 昨天月線 - 1) × 100%（向上為正紅字，向下為負綠字）"
+                    >
+                      月線<br />斜率% {sortConfig.key === 'monthSlope' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sortable"
+                      onClick={() => handleSort('upperSlope')}
+                      title="上通道斜率%：(今天上軌 / 昨天上軌 - 1) × 100%（向上為正紅字，向下為負綠字）"
+                    >
+                      上軌<br />斜率% {sortConfig.key === 'upperSlope' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sortable"
+                      onClick={() => handleSort('lowerSlope')}
+                      title="下通道斜率%：(今天下軌 / 昨天下軌 - 1) × 100%（向上為正紅字，向下為負綠字）"
+                    >
+                      下軌<br />斜率% {sortConfig.key === 'lowerSlope' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sortable"
+                      onClick={() => handleSort('bandWidth')}
+                      title="布林通道帶寬%：(上通道 / 下通道 - 1) × 100%"
+                    >
+                      帶寬% {sortConfig.key === 'bandWidth' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sortable"
+                      onClick={() => handleSort('bandPos')}
+                      title="布林通道相對位階 (0~12)"
+                    >
+                      位階 {sortConfig.key === 'bandPos' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    </th>
                   </>
                 )}
 
@@ -1572,18 +1605,32 @@ export default function StockScreener({
                     {showFig1Cols && (
                       <>
                         <td className={`num-cell ${getSignedColorClass(stock.monthSlope)}`}>
-                          {stock.monthSlope}
+                          {stock.monthSlope !== undefined && stock.monthSlope !== null
+                            ? `${stock.monthSlope > 0 ? '+' : ''}${stock.monthSlope}%`
+                            : '-'}
+                        </td>
+                        <td className={`num-cell ${getSignedColorClass(stock.upperSlope)}`}>
+                          {stock.upperSlope !== undefined && stock.upperSlope !== null
+                            ? `${stock.upperSlope > 0 ? '+' : ''}${stock.upperSlope}%`
+                            : '-'}
+                        </td>
+                        <td className={`num-cell ${getSignedColorClass(stock.lowerSlope)}`}>
+                          {stock.lowerSlope !== undefined && stock.lowerSlope !== null
+                            ? `${stock.lowerSlope > 0 ? '+' : ''}${stock.lowerSlope}%`
+                            : '-'}
                         </td>
                         <td
                           className={`num-cell ${
-                            stock.bandWidth >= 20
+                            stock.bandWidth >= 25
                               ? 'bg-highlight-red'
-                              : stock.bandWidth <= 10
+                              : stock.bandWidth <= 12
                                 ? 'cell-green'
-                                : 'cell-red'
+                                : 'cell-neutral'
                           }`}
                         >
-                          {stock.bandWidth}
+                          {stock.bandWidth !== undefined && stock.bandWidth !== null
+                            ? `${stock.bandWidth}%`
+                            : '-'}
                         </td>
                         <td
                           className={`num-cell ${

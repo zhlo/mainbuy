@@ -725,7 +725,7 @@ export default function StockDetail({
         score: stock.monthSlope > 0 ? 85 : 55,
         status: stock.bandWidth <= 12 ? '布林壓縮待變' : stock.bandPos >= 8 ? '通道強勢突破' : '區間整理',
         isGood: stock.monthSlope >= 0,
-        detail: `月線斜率 ${stock.monthSlope}｜布林帶寬 ${stock.bandWidth}｜位階 ${stock.bandPos}｜乖年 ${stock.biasYear}%`
+        detail: `月線斜率 ${stock.monthSlope > 0 ? '+' : ''}${stock.monthSlope}%｜上軌斜率 ${stock.upperSlope > 0 ? '+' : ''}${stock.upperSlope}%｜下軌斜率 ${stock.lowerSlope > 0 ? '+' : ''}${stock.lowerSlope}%｜布林帶寬 ${stock.bandWidth}%｜位階 ${stock.bandPos}`
       },
       {
         title: '融資維持率與信用籌碼安全度 (圖3)',
@@ -1087,9 +1087,12 @@ export default function StockDetail({
 
                 {overlayMode === 'bollinger' ? (
                   <div className="overlay-legend">
-                    <span className="legend-item gray">— 通道頂 {hoveredDay.bollUpper}</span>
-                    <span className="legend-item gray">— 通道底 {hoveredDay.bollLower}</span>
+                    <span className="legend-item gray">— 上軌 {hoveredDay.bollUpper}</span>
+                    <span className="legend-item gray">— 下軌 {hoveredDay.bollLower}</span>
                     <span className="legend-item red">— 20MA {hoveredDay.ma20}</span>
+                    <span className="legend-item" style={{ color: '#38bdf8' }}>
+                      — 帶寬 {hoveredDay.bollUpper && hoveredDay.bollLower ? `${(((hoveredDay.bollUpper / hoveredDay.bollLower) - 1) * 100).toFixed(1)}%` : '--'}
+                    </span>
                   </div>
                 ) : overlayMode === 'brokerCost' && !isMarketIndex ? (
                   <div className="overlay-legend">

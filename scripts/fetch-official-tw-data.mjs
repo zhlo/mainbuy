@@ -205,8 +205,9 @@ async function crawlSingleStock(base, token) {
     // 重新計算包含真實主力分點差額的動能轉折指標 (會自動忽略最新盤中/未公布籌碼之留空日)
     stock.momentum = computeStockMomentum(stock.kline);
 
-    // 校正為 100% 真實最新 K 棒價格與漲跌型態
+    // 校正為 100% 真實最新 K 棒價格與漲跌型態及布林帶寬與斜率
     const latestKBar = stock.kline[stock.kline.length - 1];
+    const prevKBar = stock.kline.length >= 2 ? stock.kline[stock.kline.length - 2] : latestKBar;
     if (latestKBar) {
       stock.price = latestKBar.close;
       stock.change = latestKBar.change;
@@ -214,6 +215,26 @@ async function crawlSingleStock(base, token) {
       stock.volume = latestKBar.volume;
       stock.candleType = classifyCandleType(latestKBar.open, latestKBar.high, latestKBar.low, latestKBar.close);
       stock.latestTradeDate = latestKBar.date;
+
+      if (latestKBar.bollUpper && latestKBar.bollLower) {
+        stock.bandWidth = Number(
+          (((latestKBar.bollUpper / Math.max(0.01, latestKBar.bollLower)) - 1) * 100).toFixed(1)
+        );
+        stock.bandPos = Math.round(
+          ((latestKBar.close - latestKBar.bollLower) / Math.max(0.1, latestKBar.bollUpper - latestKBar.bollLower)) * 12
+        );
+      }
+      if (prevKBar) {
+        if (latestKBar.bollUpper && prevKBar.bollUpper) {
+          stock.upperSlope = Number((((latestKBar.bollUpper / prevKBar.bollUpper) - 1) * 100).toFixed(2));
+        }
+        if (latestKBar.bollLower && prevKBar.bollLower) {
+          stock.lowerSlope = Number((((latestKBar.bollLower / prevKBar.bollLower) - 1) * 100).toFixed(2));
+        }
+        if (latestKBar.ma20 && prevKBar.ma20) {
+          stock.monthSlope = Number((((latestKBar.ma20 / prevKBar.ma20) - 1) * 100).toFixed(2));
+        }
+      }
     }
 
     // 移除龐大的合成 brokerSeries 交由前端載入時毫秒級動態還原，使 JSON 檔案縮小 95%

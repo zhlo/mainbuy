@@ -813,8 +813,32 @@ export function hydrateStockBrokerSeries(stock) {
     });
   });
 
+  const calculatedSlopes = {};
+  if (kline.length >= 2) {
+    const lDay = kline[kline.length - 1];
+    const pDay = kline[kline.length - 2];
+    if (lDay.bollUpper && lDay.bollLower) {
+      calculatedSlopes.bandWidth = Number(
+        (((lDay.bollUpper / Math.max(0.01, lDay.bollLower)) - 1) * 100).toFixed(1)
+      );
+      calculatedSlopes.bandPos = Math.round(
+        ((lDay.close - lDay.bollLower) / Math.max(0.1, lDay.bollUpper - lDay.bollLower)) * 12
+      );
+    }
+    if (lDay.bollUpper && pDay.bollUpper) {
+      calculatedSlopes.upperSlope = Number((((lDay.bollUpper / pDay.bollUpper) - 1) * 100).toFixed(2));
+    }
+    if (lDay.bollLower && pDay.bollLower) {
+      calculatedSlopes.lowerSlope = Number((((lDay.bollLower / pDay.bollLower) - 1) * 100).toFixed(2));
+    }
+    if (lDay.ma20 && pDay.ma20) {
+      calculatedSlopes.monthSlope = Number((((lDay.ma20 / pDay.ma20) - 1) * 100).toFixed(2));
+    }
+  }
+
   return {
     ...stock,
+    ...calculatedSlopes,
     momentum,
     brokerSeries
   };
@@ -1201,6 +1225,7 @@ export async function fetchOfficialStockData(
   let lastValidMarginBal = fallbackStock?.kline?.[0]?.marginBal || 2500;
   let lastValidShortBal = fallbackStock?.kline?.[0]?.shortBal || 300;
   let kVal = 50;
+  let dVal = 50;
   const sourceBars = isYahooSource ? yahooKlineList : recentPrices;
 
   const kline = sourceBars.map((row, idx) => {
@@ -1413,10 +1438,28 @@ export async function fetchOfficialStockData(
   const biasQuarter = Number((((lastDay.close - lastDay.ma60) / lastDay.ma60) * 100).toFixed(1));
   const biasMonth = Number((((lastDay.close - lastDay.ma20) / lastDay.ma20) * 100).toFixed(1));
 
-  const bandWidth = Math.max(
-    1,
-    Math.round(((lastDay.bollUpper - lastDay.bollLower) / Math.max(1, lastDay.ma20)) * 100)
+  const prevDay = kline.length >= 2 ? kline[kline.length - 2] : lastDay;
+
+  // 帶寬：使用者指定布林軌道上下差距百分比 = (上通道 / 下通道 - 1) * 100%
+  const bandWidth = Number(
+    (((lastDay.bollUpper / Math.max(0.01, lastDay.bollLower)) - 1) * 100).toFixed(1)
   );
+
+  // 上通道斜率：(今天上通道 / 昨天上通道 - 1) * 100%（往上為正，往下為負）
+  const upperSlope = prevDay?.bollUpper > 0
+    ? Number((((lastDay.bollUpper / prevDay.bollUpper) - 1) * 100).toFixed(2))
+    : 0;
+
+  // 下通道斜率：(今天下通道 / 昨天下通道 - 1) * 100%（往上為正，往下為負）
+  const lowerSlope = prevDay?.bollLower > 0
+    ? Number((((lastDay.bollLower / prevDay.bollLower) - 1) * 100).toFixed(2))
+    : 0;
+
+  // 月線斜率：(今天月線 / 昨天月線 - 1) * 100%（往上為正，往下為負）
+  const monthSlope = prevDay?.ma20 > 0
+    ? Number((((lastDay.ma20 / prevDay.ma20) - 1) * 100).toFixed(2))
+    : 0;
+
   const bandPos = Math.round(
     ((lastDay.close - lastDay.bollLower) / Math.max(0.1, lastDay.bollUpper - lastDay.bollLower)) * 12
   );
@@ -1437,9 +1480,9 @@ export async function fetchOfficialStockData(
     outVol: lastDay.change >= 0 ? Math.max(15, Math.round(lastDay.volume * 0.04)) : 0,
     volume: lastDay.volume,
     warrantAmt: fallbackStock?.warrantAmt || Math.round(lastDay.volume * 0.45),
-    monthSlope: Number(
-      (((lastDay.ma20 - (kline[kline.length - 5]?.ma20 || lastDay.ma20)) / lastDay.ma20) * 10).toFixed(1)
-    ),
+    monthSlope,
+    upperSlope,
+    lowerSlope,
     lastWeekSlope: Number(
       (((lastDay.ma5 - (kline[kline.length - 5]?.ma5 || lastDay.ma5)) / lastDay.ma5) * 10).toFixed(1)
     ),
