@@ -67,35 +67,13 @@ export default function AuthGateModal({ onUnlockSuccess }) {
         <div className="auth-gate-header">
           <div className="auth-shield-icon">🛡️</div>
           <h1 className="auth-gate-title">MainBuy 主力雷達</h1>
-          <p className="auth-gate-subtitle">私人專案研究專用工作站・安全通行驗證</p>
-        </div>
-
-        {/* 核心免責聲明與使用提示區塊 */}
-        <div className="auth-disclaimer-card">
-          <div className="disclaimer-header">
-            <span className="disclaimer-badge">⚠️ 重要使用須知與免責聲明</span>
-          </div>
-          <ul className="disclaimer-list">
-            <li>
-              <strong>個人學術與策略研究用途：</strong>
-              本系統僅供個人回測分析與量化研究使用，非公開營業平台，亦不構成任何證券之要約、推薦或投資買賣建議。
-            </li>
-            <li>
-              <strong>資料可能延遲或非最新：</strong>
-              站內所有行情數據、K 線及券商分點報表均擷取自證交所、櫃買中心與券商公開網站，可能因排程同步時間差而產生延遲，或存在盤後校正前後之計算偏差。
-            </li>
-            <li>
-              <strong>獨立判斷盈虧自負：</strong>
-              任何投資決策皆具有市場風險，使用者應秉持獨立思考並審慎評估，切勿直接作為實際下單交易依據。
-            </li>
-          </ul>
         </div>
 
         {/* PIN 碼輸入表單 */}
         <form className="auth-gate-form" onSubmit={handleSubmit}>
           <div className="auth-input-group">
             <label className="auth-input-label" htmlFor="auth-pin-input">
-              <span>私人安全通行 PIN 碼 (4 ~ 6 位數字)</span>
+              <span>PIN 碼 (4 ~ 6 位數字)</span>
               <button
                 type="button"
                 className="btn-toggle-eye"
@@ -114,7 +92,7 @@ export default function AuthGateModal({ onUnlockSuccess }) {
                 pattern="[0-9]*"
                 maxLength={6}
                 autoFocus
-                placeholder="請輸入 4~6 位數字 PIN 碼"
+                placeholder="請輸入 PIN 碼"
                 value={pin}
                 onChange={e => {
                   const val = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -151,7 +129,7 @@ export default function AuthGateModal({ onUnlockSuccess }) {
               onChange={e => setRememberDevice(e.target.checked)}
               id="checkbox-remember-device"
             />
-            <span className="remember-text">記住此裝置（30 天內在此瀏覽器免再輸入 PIN 碼）</span>
+            <span className="remember-text">記住此裝置（30 天內在此瀏覽器免再輸入）</span>
           </label>
 
           {/* 解鎖按鈕 */}
@@ -161,7 +139,7 @@ export default function AuthGateModal({ onUnlockSuccess }) {
             disabled={isVerifying || pin.length < 4}
             id="btn-auth-unlock"
           >
-            {isVerifying ? '驗證通行碼中...' : '🔓 驗證並解鎖進入工作站'}
+            {isVerifying ? '驗證中...' : '🔓 解鎖進入'}
           </button>
 
           <div className="auth-forgot-link-row">
@@ -171,7 +149,7 @@ export default function AuthGateModal({ onUnlockSuccess }) {
               onClick={() => setShowRecoveryBox(p => !p)}
               id="btn-toggle-forgot-pin"
             >
-              {showRecoveryBox ? '收合救援選單 ▲' : '忘記自訂 PIN 碼？點此緊急救援 ▼'}
+              {showRecoveryBox ? '收合救援選單 ▲' : '忘記 PIN 碼？點此救援 ▼'}
             </button>
           </div>
         </form>
@@ -179,20 +157,12 @@ export default function AuthGateModal({ onUnlockSuccess }) {
         {/* 忘記密碼與救援區塊 */}
         {showRecoveryBox && (
           <div className="auth-recovery-box" id="auth-recovery-box">
-            <div className="recovery-box-header">
-              <span className="recovery-badge">🔑 管理員救援機制</span>
-              <strong className="recovery-title">不小心忘了自訂 PIN 碼？</strong>
-            </div>
-            <p className="recovery-desc">
-              系統底層內建<strong>專屬安全救援碼</strong>，輸入救援碼可直接解鎖並重設通行狀態，<strong>您的自選股清單與快取資料均會完好保留</strong>！
-            </p>
-
             <div className="recovery-manual-row">
               <input
                 type="password"
                 inputMode="numeric"
                 maxLength={6}
-                placeholder="請輸入安全救援碼 (6 位數)"
+                placeholder="請輸入救援碼 (6 位數)"
                 value={masterRecoveryPin}
                 onChange={e => setMasterRecoveryPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="recovery-input"
@@ -205,7 +175,7 @@ export default function AuthGateModal({ onUnlockSuccess }) {
                 disabled={masterRecoveryPin.length < 4}
                 id="btn-submit-recovery-pin"
               >
-                驗證救援碼並重設解鎖
+                驗證救援碼
               </button>
             </div>
 
@@ -213,11 +183,6 @@ export default function AuthGateModal({ onUnlockSuccess }) {
             {recoveryMsg && <div className="recovery-alert-success">{recoveryMsg}</div>}
           </div>
         )}
-
-        {/* 底部提示 */}
-        <div className="auth-gate-footer-hint">
-          <span>🔒 私人專用系統・請輸入您的 6 位數安全通行碼</span>
-        </div>
       </div>
     </div>
   );

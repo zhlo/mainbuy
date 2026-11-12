@@ -427,134 +427,136 @@ export default function App() {
 
   return (
     <div className={`app-shell ${currentSurfaceTheme}`}>
-      {/* 全域頂部導覽列 */}
-      <header className="global-navbar" id="global-navbar">
-        <div
-          className="brand-area"
-          onClick={() => setActiveView('screener')}
-          style={{ cursor: 'pointer' }}
-          title="點擊返回主力選股首頁"
-          id="brand-home-link"
-        >
-          <div className="brand-logo">M</div>
-          <div>
-            <h1 className="brand-title">MainBuy 主力雷達</h1>
-            <span className="brand-subtitle">
-              {syncState.status === 'syncing'
-                ? `🔄 正在同步證交所/櫃買/券商分點正式資料 (${syncState.syncedCount}/${syncState.totalCount})...`
-                : syncState.status === 'synced'
-                  ? `🟢 正式資料連線中 (${syncState.brokerSource || '證交所/FinMind'}｜最新日: ${syncState.latestDate})`
-                  : '台股主力買賣・投信轉折・關鍵分點動能選股系統'}
-            </span>
-          </div>
-        </div>
-
-        {/* 主視圖切換頁籤：1.主力選股 / 2.個股K線 / 3.分點反查 */}
-        <nav className="main-view-tabs" aria-label="主功能切換">
-          <button
-            className={`nav-tab-btn ${activeView === 'screener' ? 'active' : ''}`}
-            onClick={() => setActiveView('screener')}
-            id="nav-btn-screener"
-          >
-            <span className="tab-step">1</span>
-            <span>主力選股 (動能轉折快篩)</span>
-          </button>
-          <button
-            className={`nav-tab-btn ${activeView === 'detail' ? 'active' : ''}`}
-            onClick={() => setActiveView('detail')}
-            id="nav-btn-detail"
-          >
-            <span className="tab-step">2</span>
-            <span>
-              {selectedStock.code === 'TAIEX'
-                ? `大盤K線：加權指數 (${selectedStock.price?.toLocaleString()})`
-                : `個股K線：${selectedStock.code} ${selectedStock.name}`}
-            </span>
-          </button>
-          <button
-            className={`nav-tab-btn ${activeView === 'radar' ? 'active' : ''}`}
-            onClick={() => setActiveView('radar')}
-            id="nav-btn-radar"
-          >
-            <span className="tab-step">3</span>
-            <span>分點反查 & 隔日沖雷達</span>
-          </button>
-          <button
-            className="nav-tab-btn formula-btn"
-            onClick={() => setIsFormulaOpen(true)}
-            id="nav-btn-formula"
-          >
-            <span>指標與公式說明</span>
-          </button>
-        </nav>
-
-        {/* 動態查詢任意台股代號（自動快取秒開） + 同步正式資料按鈕 + 外觀模式 */}
-        <div className="navbar-right-controls">
-          <form className="live-lookup-form" onSubmit={handleLookupAnyStock}>
-            <input
-              type="text"
-              className="live-lookup-input"
-              placeholder="搜尋台股代號/名稱(自動快取)..."
-              value={customLookupCode}
-              onChange={e => setCustomLookupCode(e.target.value)}
-              id="input-live-stock-lookup"
-            />
-            <button
-              type="submit"
-              className="btn-live-lookup"
-              disabled={isLookingUpSingle}
-              id="btn-submit-live-lookup"
-              title="查詢個股即時走勢與主力分點報表"
+      {!isAuthenticated ? (
+        <AuthGateModal onUnlockSuccess={handleUnlockSuccess} />
+      ) : (
+        <>
+          {/* 全域頂部導覽列 */}
+          <header className="global-navbar" id="global-navbar">
+            <div
+              className="brand-area"
+              onClick={() => setActiveView('screener')}
+              style={{ cursor: 'pointer' }}
+              title="點擊返回主力選股首頁"
+              id="brand-home-link"
             >
-              {isLookingUpSingle ? '抓取中...' : '🔍 查股&快取'}
-            </button>
-            <button
-              type="button"
-              className="btn-live-add-watchlist"
-              onClick={handleAddCustomWatchlist}
-              disabled={isLookingUpSingle || !customLookupCode.trim()}
-              id="btn-add-custom-watchlist"
-              title="輸入代號直接加入我的自選股並自動快取"
-            >
-              ⭐ 加自選
-            </button>
-          </form>
+              <div className="brand-logo">M</div>
+              <div>
+                <h1 className="brand-title">MainBuy 主力雷達</h1>
+                <span className="brand-subtitle">
+                  {syncState.status === 'syncing'
+                    ? `🔄 正在同步證交所/櫃買/券商分點正式資料 (${syncState.syncedCount}/${syncState.totalCount})...`
+                    : syncState.status === 'synced'
+                      ? `🟢 正式資料連線中 (${syncState.brokerSource || '證交所/FinMind'}｜最新日: ${syncState.latestDate})`
+                      : '台股主力買賣・投信轉折・關鍵分點動能選股系統'}
+                </span>
+              </div>
+            </div>
 
-          <button
-            className="quick-stock-btn live-sync-btn"
-            onClick={syncAllStocksLive}
-            disabled={syncState.status === 'syncing'}
-            title="立即從證交所/櫃買中心/券商分點網站與 FinMind 同步最新正式資料"
-            id="btn-sync-live-all"
-          >
-            {syncState.status === 'syncing'
-              ? `同步中(${syncState.syncedCount}/${syncState.totalCount})`
-              : '🔄 同步最新正式資料'}
-          </button>
+            {/* 主視圖切換頁籤：1.主力選股 / 2.個股K線 / 3.分點反查 */}
+            <nav className="main-view-tabs" aria-label="主功能切換">
+              <button
+                className={`nav-tab-btn ${activeView === 'screener' ? 'active' : ''}`}
+                onClick={() => setActiveView('screener')}
+                id="nav-btn-screener"
+              >
+                <span className="tab-step">1</span>
+                <span>主力選股 (動能轉折快篩)</span>
+              </button>
+              <button
+                className={`nav-tab-btn ${activeView === 'detail' ? 'active' : ''}`}
+                onClick={() => setActiveView('detail')}
+                id="nav-btn-detail"
+              >
+                <span className="tab-step">2</span>
+                <span>
+                  {selectedStock.code === 'TAIEX'
+                    ? `大盤K線：加權指數 (${selectedStock.price?.toLocaleString()})`
+                    : `個股K線：${selectedStock.code} ${selectedStock.name}`}
+                </span>
+              </button>
+              <button
+                className={`nav-tab-btn ${activeView === 'radar' ? 'active' : ''}`}
+                onClick={() => setActiveView('radar')}
+                id="nav-btn-radar"
+              >
+                <span className="tab-step">3</span>
+                <span>分點反查 & 隔日沖雷達</span>
+              </button>
+              <button
+                className="nav-tab-btn formula-btn"
+                onClick={() => setIsFormulaOpen(true)}
+                id="nav-btn-formula"
+              >
+                <span>指標與公式說明</span>
+              </button>
+            </nav>
 
-          <select
-            className="theme-mode-select"
-            value={themeMode}
-            onChange={e => setThemeMode(e.target.value)}
-            id="select-theme-mode"
-            title="切換配色模式"
-          >
-            <option value="dark">全深色旗艦模式 (推薦)</option>
-            <option value="classic">雙模配色 (選股黑底 / K線白底)</option>
-            <option value="light">全淺色分析模式</option>
-          </select>
+            {/* 動態查詢任意台股代號（自動快取秒開） + 同步正式資料按鈕 + 外觀模式 */}
+            <div className="navbar-right-controls">
+              <form className="live-lookup-form" onSubmit={handleLookupAnyStock}>
+                <input
+                  type="text"
+                  className="live-lookup-input"
+                  placeholder="搜尋台股代號/名稱(自動快取)..."
+                  value={customLookupCode}
+                  onChange={e => setCustomLookupCode(e.target.value)}
+                  id="input-live-stock-lookup"
+                />
+                <button
+                  type="submit"
+                  className="btn-live-lookup"
+                  disabled={isLookingUpSingle}
+                  id="btn-submit-live-lookup"
+                  title="查詢個股即時走勢與主力分點報表"
+                >
+                  {isLookingUpSingle ? '抓取中...' : '🔍 查股&快取'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-live-add-watchlist"
+                  onClick={handleAddCustomWatchlist}
+                  disabled={isLookingUpSingle || !customLookupCode.trim()}
+                  id="btn-add-custom-watchlist"
+                  title="輸入代號直接加入我的自選股並自動快取"
+                >
+                  ⭐ 加自選
+                </button>
+              </form>
 
-          <button
-            className="quick-stock-btn"
-            onClick={() => setIsDataSourceOpen(true)}
-            title="資料來源與本機快取管理"
-            id="btn-open-datasource"
-          >
-            ⚙️ 資料源
-          </button>
+              <button
+                className="quick-stock-btn live-sync-btn"
+                onClick={syncAllStocksLive}
+                disabled={syncState.status === 'syncing'}
+                title="立即從證交所/櫃買中心/券商分點網站與 FinMind 同步最新正式資料"
+                id="btn-sync-live-all"
+              >
+                {syncState.status === 'syncing'
+                  ? `同步中(${syncState.syncedCount}/${syncState.totalCount})`
+                  : '🔄 同步最新正式資料'}
+              </button>
 
-          {isAuthenticated && (
-            <>
+              <select
+                className="theme-mode-select"
+                value={themeMode}
+                onChange={e => setThemeMode(e.target.value)}
+                id="select-theme-mode"
+                title="切換配色模式"
+              >
+                <option value="dark">全深色旗艦模式 (推薦)</option>
+                <option value="classic">雙模配色 (選股黑底 / K線白底)</option>
+                <option value="light">全淺色分析模式</option>
+              </select>
+
+              <button
+                className="quick-stock-btn"
+                onClick={() => setIsDataSourceOpen(true)}
+                title="資料來源與本機快取管理"
+                id="btn-open-datasource"
+              >
+                ⚙️ 資料源
+              </button>
+
               <button
                 className="quick-stock-btn btn-pin-settings"
                 onClick={() => setIsPinModalOpen(true)}
@@ -571,56 +573,52 @@ export default function App() {
               >
                 🔒 鎖定
               </button>
-            </>
-          )}
-        </div>
-      </header>
+            </div>
+          </header>
 
-      {/* 主要內容區：未通過安全驗證時全站遮蔽保護，只顯示門禁解鎖卡片 */}
-      {!isAuthenticated ? (
-        <AuthGateModal onUnlockSuccess={handleUnlockSuccess} />
-      ) : (
-        <main className="main-workspace">
-          {activeView === 'screener' ? (
-            <StockScreener
-              stocks={stocks}
-              taiexData={taiexData}
-              pinnedCodes={pinnedCodes}
-              onTogglePin={handleTogglePin}
-              onSelectStock={handleSelectStock}
-              onBatchAddStocks={handleBatchAddStocks}
-              onOpenFormulaModal={() => setIsFormulaOpen(true)}
-            />
-          ) : activeView === 'radar' ? (
-            <BrokerRadarView
-              stocks={stocks}
-              onSelectStockWithBroker={handleSelectStockWithBroker}
-            />
-          ) : (
-            <StockDetail
-              stock={selectedStock}
-              allStocks={stocks}
-              taiexData={taiexData}
-              initialBrokerId={initialBrokerId}
-              watchlistCodes={pinnedCodes}
-              onToggleWatchlist={handleTogglePin}
-              onSelectStock={handleSelectStock}
-              onBackToScreener={() => setActiveView('screener')}
-              onOpenFormulaModal={() => setIsFormulaOpen(true)}
-            />
-          )}
-        </main>
+          {/* 主要內容區 */}
+          <main className="main-workspace">
+            {activeView === 'screener' ? (
+              <StockScreener
+                stocks={stocks}
+                taiexData={taiexData}
+                pinnedCodes={pinnedCodes}
+                onTogglePin={handleTogglePin}
+                onSelectStock={handleSelectStock}
+                onBatchAddStocks={handleBatchAddStocks}
+                onOpenFormulaModal={() => setIsFormulaOpen(true)}
+              />
+            ) : activeView === 'radar' ? (
+              <BrokerRadarView
+                stocks={stocks}
+                onSelectStockWithBroker={handleSelectStockWithBroker}
+              />
+            ) : (
+              <StockDetail
+                stock={selectedStock}
+                allStocks={stocks}
+                taiexData={taiexData}
+                initialBrokerId={initialBrokerId}
+                watchlistCodes={pinnedCodes}
+                onToggleWatchlist={handleTogglePin}
+                onSelectStock={handleSelectStock}
+                onBackToScreener={() => setActiveView('screener')}
+                onOpenFormulaModal={() => setIsFormulaOpen(true)}
+              />
+            )}
+          </main>
+
+          {/* 全站常駐免責與個人研究聲明頁尾 */}
+          <footer className="app-global-footer" id="app-global-disclaimer-footer">
+            <div className="footer-disclaimer-inner">
+              <span className="footer-disclaimer-badge">⚠️ 私人研究聲明</span>
+              <p className="footer-disclaimer-text">
+                本站為個人策略研究與學術分析專用系統，非公開營業平台，亦不構成任何證券之要約、推薦或投資買賣建議。市場行情與券商分點數據可能因公佈時間差而存在延遲或非最新，亦可能存在計算偏差。投資請獨立審慎判斷並自負盈虧。
+              </p>
+            </div>
+          </footer>
+        </>
       )}
-
-      {/* 全站常駐免責與個人研究聲明頁尾 */}
-      <footer className="app-global-footer" id="app-global-disclaimer-footer">
-        <div className="footer-disclaimer-inner">
-          <span className="footer-disclaimer-badge">⚠️ 私人研究聲明</span>
-          <p className="footer-disclaimer-text">
-            本站為個人策略研究與學術分析專用系統，非公開營業平台，亦不構成任何證券之要約、推薦或投資買賣建議。市場行情與券商分點數據可能因公佈時間差而存在延遲或非最新，亦可能存在計算偏差。投資請獨立審慎判斷並自負盈虧。
-          </p>
-        </div>
-      </footer>
 
       {/* 全局自選股與操作 Toast 提示通知 */}
       {toastMessage && (
