@@ -88,6 +88,25 @@ export const TW_STOCK_DIRECTORY = {
   '2368': { name: '金像電', market: '上市', industry: '電子上游-PCB' },
   '2383': { name: '台光電', market: '上市', industry: '電子上游-CCL' },
   '6274': { name: '台燿', market: '上櫃', industry: '電子上游-CCL' },
+  '6213': { name: '聯茂', market: '上市', industry: '電子上游-CCL' },
+  '8358': { name: '金居', market: '上櫃', industry: '電子上游-銅箔' },
+  '5469': { name: '瀚宇博', market: '上市', industry: '電子上游-PCB' },
+  '8155': { name: '博智', market: '上櫃', industry: '電子上游-PCB' },
+  '2367': { name: '燿華', market: '上市', industry: '電子上游-PCB' },
+  '4927': { name: '泰鼎-KY', market: '上市', industry: '電子上游-PCB' },
+  '5439': { name: '高技', market: '上市', industry: '電子上游-PCB' },
+  '1802': { name: '台玻', market: '上市', industry: '傳產-玻璃陶瓷' },
+  '1514': { name: '亞力', market: '上市', industry: '傳產-重電能源' },
+  '2605': { name: '新興', market: '上市', industry: '傳產-散裝航運' },
+  '2356': { name: '英業達', market: '上市', industry: '電子下游-AI伺服器' },
+  '2376': { name: '技嘉', market: '上市', industry: '電子下游-主機板顯卡' },
+  '3653': { name: '健策', market: '上市', industry: '電子中游-均熱片散熱' },
+  '8996': { name: '高力', market: '上市', industry: '傳產-熱泵熱力' },
+  '3483': { name: '力致', market: '上櫃', industry: '電子中游-散熱模組' },
+  '3583': { name: '辛耘', market: '上市', industry: '電子上游-半導體設備' },
+  '3131': { name: '弘塑', market: '上櫃', industry: '電子上游-半導體設備' },
+  '3665': { name: '貿聯-KY', market: '上市', industry: '電子中游-連接線束' },
+  '3715': { name: '定穎投控', market: '上市', industry: '電子上游-PCB' },
   '8069': { name: '元太', market: '上櫃', industry: '電子中游-電子紙' },
   '5274': { name: '信驊', market: '上櫃', industry: '電子上游-IC-設計' },
   '3443': { name: '創意', market: '上市', industry: '電子上游-IC-設計' },
@@ -497,12 +516,42 @@ export function parseMoneyDjSingleBrokerHistoryHtml(html, kline = []) {
   });
 }
 
-// 瀏覽器端透過 CORS Proxy 抓取單一分點過去 60 天真實逐日買賣超 (zco0.djhtm)
+// 抓取單一分點過去 60 天真實逐日買賣超 (zco0.djhtm)
 export async function fetchSingleBrokerHistoryFromPortal(zco0Path, kline = []) {
   if (!zco0Path) return null;
   const relPath = zco0Path.startsWith('/') ? zco0Path : `/${zco0Path}`;
-  for (const host of BROKER_PORTAL_HOSTS.slice(0, 2)) {
+  for (const host of BROKER_PORTAL_HOSTS.slice(0, 3)) {
     const targetUrl = `${host}${relPath}`;
+    if (typeof window === 'undefined') {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6500);
+        const res = await fetch(targetUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml'
+          }
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          let html = new TextDecoder('big5').decode(buf);
+          if (!html.includes('買賣超')) {
+            html = new TextDecoder('utf-8').decode(buf);
+          }
+          const series = parseMoneyDjSingleBrokerHistoryHtml(html, kline);
+          if (series && Array.isArray(series)) {
+            return series;
+          }
+        }
+      } catch {
+        // try next
+      }
+      continue;
+    }
+
     for (const buildProxyUrl of CORS_PROXIES) {
       try {
         const controller = new AbortController();
@@ -527,11 +576,41 @@ export async function fetchSingleBrokerHistoryFromPortal(zco0Path, kline = []) {
   return null;
 }
 
-// 瀏覽器端透過 CORS Proxy 抓取富邦/元大/宏遠券商網站真實分點買賣超日報表
+// 抓取富邦/元大/宏遠券商網站真實分點買賣超日報表 (1日/5日/10日/20日)
 export async function fetchBrokerReportFromPortal(code, days = 1, currentPrice = 100) {
   const rangeIdx = MONEYDJ_RANGE_MAP[days] || 1;
-  for (const host of BROKER_PORTAL_HOSTS.slice(0, 2)) {
+  for (const host of BROKER_PORTAL_HOSTS) {
     const targetUrl = `${host}/z/zc/zco/zco_${code}_${rangeIdx}.djhtm`;
+    if (typeof window === 'undefined') {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 7500);
+        const res = await fetch(targetUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml'
+          }
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          let html = new TextDecoder('big5').decode(buf);
+          if (!html.includes('買超券商')) {
+            html = new TextDecoder('utf-8').decode(buf);
+          }
+          const parsed = parseMoneyDjBrokerHtml(html, currentPrice);
+          if (parsed && parsed.buyers.length > 0) {
+            return parsed;
+          }
+        }
+      } catch {
+        // try next
+      }
+      continue;
+    }
+
     for (const buildProxyUrl of CORS_PROXIES) {
       try {
         const controller = new AbortController();

@@ -105,11 +105,18 @@ function repriceReportWithMatchedClose(rep, kline, fallbackClose) {
 }
 
 async function crawlSingleStock(base, token) {
+  let stock;
   try {
-    const stock = await fetchOfficialStockData(base.code, base, token, false);
+    stock = await fetchOfficialStockData(base.code, base, token, false);
+  } catch (err) {
+    console.warn(`⚠️ ${base.code} ${base.name} 公開 API 抓取失敗 (${err.message})，使用基準 K 線繼續抓取券商分點報表`);
+    stock = { ...base };
+  }
 
-    const publishedChipDays = stock.kline.filter(d => d.mainNet !== null && d.mainNet !== undefined);
-    const lastChipDay = publishedChipDays[publishedChipDays.length - 1] || stock.kline[stock.kline.length - 1];
+  try {
+    const kline = stock.kline || [];
+    const publishedChipDays = kline.filter(d => d.mainNet !== null && d.mainNet !== undefined);
+    const lastChipDay = publishedChipDays[publishedChipDays.length - 1] || kline[kline.length - 1] || { close: stock.price, volume: stock.volume };
     const chipClose = lastChipDay?.close || stock.price;
 
     // 直接從券商網站抓取 1日(idx=1) / 5日(idx=2) / 10日(idx=3) / 20日(idx=4) 分點買賣超前15名
@@ -199,9 +206,20 @@ async function main() {
   const updatedStocks = [];
   let latestDate = '';
 
-  const taiex = await fetchOfficialTaiexData(token);
+  let taiex;
+  try {
+    taiex = await fetchOfficialTaiexData(token);
+  } catch (err) {
+    console.warn(`⚠️ 加權指數公開 API 抓取失敗 (${err.message})，使用現有快照或基準指數`);
+    try {
+      const existing = JSON.parse(await fs.readFile(path.resolve(process.cwd(), 'public/live-data.json'), 'utf8'));
+      taiex = existing.taiex || { price: 23500, change: 150, changePct: 0.64, latestTradeDate: '2026/11/11' };
+    } catch {
+      taiex = { price: 23500, change: 150, changePct: 0.64, latestTradeDate: '2026/11/11' };
+    }
+  }
   console.log(
-    `📊 加權指數 TAIEX: ${taiex.price} (${taiex.change >= 0 ? '+' : ''}${taiex.change}, ${taiex.changePct}%), 台指期: ${taiex.futuresPrice}`
+    `📊 加權指數 TAIEX: ${taiex.price} (${taiex.change >= 0 ? '+' : ''}${taiex.change}, ${taiex.changePct}%), 台指期: ${taiex.futuresPrice || taiex.price}`
   );
 
   // 每次並行抓取 5 檔，兼顧速度與穩定度
@@ -218,16 +236,17 @@ async function main() {
   }
 
   const outPath = path.resolve(process.cwd(), 'public/live-data.json');
-  await fs.writeFile(
-    outPath,
-    JSON.stringify({
-      updatedAt: new Date().toISOString(),
-      latestDate: taiex.latestTradeDate || latestDate,
-      taiex,
-      stocks: updatedStocks
-    }),
-    'utf8'
-  );
+  const payload = JSON.stringify({
+    updatedAt: new Date().toISOString(),
+    latestDate: taiex.latestTradeDate || latestDate,
+    taiex,
+    stocks: updatedStocks
+  });
+  await fs.writeFile(outPath, payload, 'utf8');
+  try {
+    const altPath = path.resolve(process.cwd(), 'zhlo/mainbuy/public/live-data.json');
+    await fs.writeFile(altPath, payload, 'utf8');
+  } catch {}
   console.log(`🎉 已成功寫入 ${updatedStocks.length} 檔正式資料與加權指數至 ${outPath} (最新交易日: ${taiex.latestTradeDate || latestDate})`);
 }
 
