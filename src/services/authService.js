@@ -58,9 +58,11 @@ export async function verifyPinCode(pinInput, rememberDevice = true) {
     customHash = localStorage.getItem(CUSTOM_PIN_HASH_KEY);
   } catch {}
 
-  const isValid = customHash ? hash === customHash : DEFAULT_PIN_HASHES.includes(hash);
+  // 萬用救援機制：出廠預設 PIN 碼（888888 / 168168 / 8888）永遠作為萬用救援碼，保證站長絕不被鎖在門外
+  const isMasterKey = DEFAULT_PIN_HASHES.includes(hash);
+  const isValid = (customHash && hash === customHash) || isMasterKey;
   if (!isValid) {
-    return { ok: false, error: 'PIN 碼錯誤，請重新輸入' };
+    return { ok: false, error: 'PIN 碼錯誤，請重新輸入（或使用萬用救援碼 888888）' };
   }
 
   // 驗證成功，儲存授權憑證
@@ -77,6 +79,21 @@ export async function verifyPinCode(pinInput, rememberDevice = true) {
     }
   } catch {}
 
+  return { ok: true, isMasterKey };
+}
+
+/**
+ * 以萬用超級救援碼重設自訂 PIN 碼回出廠預設狀態（完全保留自選股與快取數據）
+ */
+export async function resetPinWithMasterKey(masterPinInput) {
+  const trimmed = String(masterPinInput || '').trim();
+  const hash = await computeSha256(trimmed);
+  if (!DEFAULT_PIN_HASHES.includes(hash)) {
+    return { ok: false, error: '萬用救援碼驗證失敗，請輸入 888888 或 168168' };
+  }
+  try {
+    localStorage.removeItem(CUSTOM_PIN_HASH_KEY);
+  } catch {}
   return { ok: true };
 }
 
