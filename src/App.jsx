@@ -8,13 +8,20 @@ import {
   loadCachedStocksFromStorage,
   saveStockToLocalCache
 } from './services/liveStockService';
+import { isDeviceAuthenticated, logoutAndLockDevice } from './services/authService';
 import StockScreener from './components/StockScreener';
 import StockDetail from './components/StockDetail';
 import BrokerRadarView from './components/BrokerRadarView';
 import FormulaModal from './components/FormulaModal';
 import DataSourceModal from './components/DataSourceModal';
+import AuthGateModal from './components/AuthGateModal';
+import PinChangeModal from './components/PinChangeModal';
 
 export default function App() {
+  // 私人安全門禁驗證狀態（支援 30 天記住裝置免重複輸入）
+  const [isAuthenticated, setIsAuthenticated] = useState(() => isDeviceAuthenticated());
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+
   // 初始化時立即載入本機快取個股，實現 0 秒瞬開
   const [stocks, setStocks] = useState(() => {
     const base = generateStockDataset();
@@ -254,12 +261,25 @@ export default function App() {
     }));
   }, [stocks, selectedCode, syncSingleStock, dataSourceConfig.finmindToken, taiexData]);
 
+  const handleUnlockSuccess = () => {
+    setIsAuthenticated(true);
+    setToastMessage('🔓 通行驗證成功，歡迎進入 MainBuy 私人工作站');
+    setTimeout(() => setToastMessage(''), 2500);
+  };
+
+  const handleLockDevice = () => {
+    logoutAndLockDevice();
+    setIsAuthenticated(false);
+    setToastMessage('🔒 系統已安全鎖定，需重新輸入 PIN 碼');
+    setTimeout(() => setToastMessage(''), 2500);
+  };
+
   useEffect(() => {
-    if (dataSourceConfig.mode === 'live') {
+    if (isAuthenticated && dataSourceConfig.mode === 'live') {
       syncAllStocksLive();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAuthenticated]);
 
   // 使用者輸入任意 4 碼台股代號或名稱：若已快取則 0 秒打開並背景更新，若未快取則即時抓取並永久快取
   const handleLookupAnyStock = async e => {
@@ -532,40 +552,75 @@ export default function App() {
           >
             ⚙️ 資料源
           </button>
+
+          {isAuthenticated && (
+            <>
+              <button
+                className="quick-stock-btn btn-pin-settings"
+                onClick={() => setIsPinModalOpen(true)}
+                title="修改私人通行 PIN 碼"
+                id="btn-open-pin-modal"
+              >
+                🔑 改 PIN
+              </button>
+              <button
+                className="quick-stock-btn btn-lock-system"
+                onClick={handleLockDevice}
+                title="安全登出並鎖定本機裝置"
+                id="btn-lock-device"
+              >
+                🔒 鎖定
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      {/* 主要內容區 */}
-      <main className="main-workspace">
-        {activeView === 'screener' ? (
-          <StockScreener
-            stocks={stocks}
-            taiexData={taiexData}
-            pinnedCodes={pinnedCodes}
-            onTogglePin={handleTogglePin}
-            onSelectStock={handleSelectStock}
-            onBatchAddStocks={handleBatchAddStocks}
-            onOpenFormulaModal={() => setIsFormulaOpen(true)}
-          />
-        ) : activeView === 'radar' ? (
-          <BrokerRadarView
-            stocks={stocks}
-            onSelectStockWithBroker={handleSelectStockWithBroker}
-          />
-        ) : (
-          <StockDetail
-            stock={selectedStock}
-            allStocks={stocks}
-            taiexData={taiexData}
-            initialBrokerId={initialBrokerId}
-            watchlistCodes={pinnedCodes}
-            onToggleWatchlist={handleTogglePin}
-            onSelectStock={handleSelectStock}
-            onBackToScreener={() => setActiveView('screener')}
-            onOpenFormulaModal={() => setIsFormulaOpen(true)}
-          />
-        )}
-      </main>
+      {/* 主要內容區：未通過安全驗證時全站遮蔽保護，只顯示門禁解鎖卡片 */}
+      {!isAuthenticated ? (
+        <AuthGateModal onUnlockSuccess={handleUnlockSuccess} />
+      ) : (
+        <main className="main-workspace">
+          {activeView === 'screener' ? (
+            <StockScreener
+              stocks={stocks}
+              taiexData={taiexData}
+              pinnedCodes={pinnedCodes}
+              onTogglePin={handleTogglePin}
+              onSelectStock={handleSelectStock}
+              onBatchAddStocks={handleBatchAddStocks}
+              onOpenFormulaModal={() => setIsFormulaOpen(true)}
+            />
+          ) : activeView === 'radar' ? (
+            <BrokerRadarView
+              stocks={stocks}
+              onSelectStockWithBroker={handleSelectStockWithBroker}
+            />
+          ) : (
+            <StockDetail
+              stock={selectedStock}
+              allStocks={stocks}
+              taiexData={taiexData}
+              initialBrokerId={initialBrokerId}
+              watchlistCodes={pinnedCodes}
+              onToggleWatchlist={handleTogglePin}
+              onSelectStock={handleSelectStock}
+              onBackToScreener={() => setActiveView('screener')}
+              onOpenFormulaModal={() => setIsFormulaOpen(true)}
+            />
+          )}
+        </main>
+      )}
+
+      {/* 全站常駐免責與個人研究聲明頁尾 */}
+      <footer className="app-global-footer" id="app-global-disclaimer-footer">
+        <div className="footer-disclaimer-inner">
+          <span className="footer-disclaimer-badge">⚠️ 私人研究聲明</span>
+          <p className="footer-disclaimer-text">
+            本站為個人策略研究與學術分析專用系統，非公開營業平台，亦不構成任何證券之要約、推薦或投資買賣建議。市場行情與券商分點數據可能因公佈時間差而存在延遲或非最新，亦可能存在計算偏差。投資請獨立審慎判斷並自負盈虧。
+          </p>
+        </div>
+      </footer>
 
       {/* 全局自選股與操作 Toast 提示通知 */}
       {toastMessage && (
@@ -576,6 +631,16 @@ export default function App() {
 
       {/* 欄位與公式說明彈窗 */}
       <FormulaModal isOpen={isFormulaOpen} onClose={() => setIsFormulaOpen(false)} />
+
+      {/* 修改 PIN 碼彈窗 */}
+      <PinChangeModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onPinChanged={() => {
+          setToastMessage('✅ 私人 PIN 碼修改成功！');
+          setTimeout(() => setToastMessage(''), 2500);
+        }}
+      />
 
       {/* 資料源與 API 設定彈窗 */}
       <DataSourceModal

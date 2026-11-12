@@ -3495,5 +3495,441 @@ body {
   background: #1e293b;
 }
 
+/* ================= 私人安全門禁卡片與免責聲明樣式 ================= */
+
+.auth-gate-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 70px);
+  padding: 30px 16px 60px;
+  background: radial-gradient(circle at 50% 20%, rgba(30, 41, 59, 0.75) 0%, rgba(10, 15, 29, 0.98) 100%);
+  animation: fadeInGate 0.3s ease-out;
+}
+
+@keyframes fadeInGate {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.auth-gate-card {
+  width: 100%;
+  max-width: 580px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.7), 0 0 30px rgba(37, 99, 235, 0.15);
+  backdrop-filter: blur(16px);
+}
+
+.auth-gate-header {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.auth-shield-icon {
+  font-size: 40px;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
+}
+
+.auth-gate-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: 0.03em;
+}
+
+.auth-gate-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* 免責警語卡片 */
+.auth-disclaimer-card {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 24px;
+}
+
+.disclaimer-header {
+  margin-bottom: 8px;
+}
+
+.disclaimer-badge {
+  display: inline-block;
+  background: rgba(234, 179, 8, 0.18);
+  color: #facc15;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.disclaimer-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.disclaimer-list li {
+  margin-bottom: 6px;
+}
+
+.disclaimer-list li:last-child {
+  margin-bottom: 0;
+}
+
+.disclaimer-list strong {
+  color: #f8fafc;
+}
+
+/* 表單與 PIN 碼輸入 */
+.auth-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-input-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.btn-toggle-eye {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.btn-toggle-eye:hover {
+  color: #60a5fa;
+}
+
+.pin-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.auth-pin-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  background: #0f172a;
+  border: 1.5px solid #334155;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 18px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.2em;
+  text-align: center;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.auth-pin-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.auth-pin-input.has-error {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+}
+
+/* 圓點指示器 */
+.pin-dots-indicator {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.pin-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #334155;
+  transition: all 0.2s ease;
+}
+
+.pin-dot.filled {
+  background: #3b82f6;
+  box-shadow: 0 0 8px #3b82f6;
+  transform: scale(1.15);
+}
+
+/* 錯誤提示 */
+.auth-error-banner {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.animate-shake {
+  animation: shake 0.35s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+  40%, 60% { transform: translate3d(3px, 0, 0); }
+}
+
+/* 記住裝置 Checkbox */
+.auth-remember-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+}
+
+.auth-remember-checkbox input[type="checkbox"] {
+  accent-color: #3b82f6;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.btn-auth-unlock {
+  height: 46px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  margin-top: 6px;
+}
+
+.btn-auth-unlock:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-auth-unlock:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.auth-gate-footer-hint {
+  text-align: center;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  color: #64748b;
+  font-size: 12px;
+}
+
+.auth-gate-footer-hint strong {
+  color: #93c5fd;
+  letter-spacing: 0.05em;
+}
+
+/* 頂部工具列鎖定與修改 PIN 按鈕 */
+.btn-pin-settings {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+.btn-pin-settings:hover {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #ffffff !important;
+}
+
+.btn-lock-system {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  color: #fca5a5 !important;
+}
+
+.btn-lock-system:hover {
+  background: rgba(239, 68, 68, 0.25) !important;
+  color: #ffffff !important;
+}
+
+/* 全站常駐頁尾免責聲明 */
+.app-global-footer {
+  margin-top: 40px;
+  padding: 16px 20px;
+  background: rgba(15, 23, 42, 0.85);
+  border-top: 1px solid rgba(51, 65, 85, 0.6);
+  font-size: 12px;
+}
+
+.footer-disclaimer-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  line-height: 1.6;
+}
+
+.footer-disclaimer-badge {
+  display: inline-block;
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  white-space: nowrap;
+}
+
+.footer-disclaimer-text {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 11.5px;
+}
+
+/* 修改 PIN 碼彈窗面板 */
+.pin-modal-panel {
+  max-width: 440px !important;
+}
+
+.pin-change-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+.pin-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pin-field-label {
+  font-size: 12.5px;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.pin-text-input {
+  height: 42px;
+  padding: 0 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 16px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.15em;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.pin-text-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.pin-modal-error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  text-align: center;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.pin-modal-success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  text-align: center;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.pin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.btn-modal-cancel {
+  padding: 8px 16px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.btn-modal-cancel:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.btn-modal-confirm {
+  padding: 8px 18px;
+  background: #2563eb;
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.15s;
+}
+
+.btn-modal-confirm:hover:not(:disabled) {
+  background: #3b82f6;
+}
+
+.btn-modal-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 
 
