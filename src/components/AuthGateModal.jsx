@@ -38,11 +38,11 @@ export default function AuthGateModal({ onUnlockSuccess }) {
     }
   };
 
-  // 使用萬用救援碼一鍵重設自訂密碼回預設出廠狀態
-  const handleResetWithMasterKey = async (quickFill = false) => {
-    const targetKey = quickFill ? '888888' : masterRecoveryPin.trim();
+  // 使用專屬安全救援碼重設自訂密碼回預設狀態
+  const handleResetWithMasterKey = async () => {
+    const targetKey = masterRecoveryPin.trim();
     if (!targetKey) {
-      setRecoveryError('請輸入萬用超級救援碼（例如 888888）');
+      setRecoveryError('請輸入專屬安全救援碼');
       return;
     }
     setRecoveryError('');
@@ -50,13 +50,13 @@ export default function AuthGateModal({ onUnlockSuccess }) {
 
     const res = await resetPinWithMasterKey(targetKey);
     if (res.ok) {
-      setRecoveryMsg('🎉 已成功重設 PIN 碼回出廠預設狀態！您的自選股與所有設定均完好保留。');
+      setRecoveryMsg('🎉 已成功驗證救援碼並重設 PIN 碼！您的自選股與所有設定均完好保留。');
       setPin(targetKey);
       setTimeout(() => {
         handleSubmit();
       }, 800);
     } else {
-      setRecoveryError(res.error || '萬用救援碼驗證失敗');
+      setRecoveryError(res.error || '安全救援碼驗證失敗，請確認後重試');
     }
   };
 
@@ -176,34 +176,23 @@ export default function AuthGateModal({ onUnlockSuccess }) {
           </div>
         </form>
 
-        {/* 忘記密碼與萬用救援區塊 */}
+        {/* 忘記密碼與救援區塊 */}
         {showRecoveryBox && (
           <div className="auth-recovery-box" id="auth-recovery-box">
             <div className="recovery-box-header">
-              <span className="recovery-badge">🔑 萬用救援機制</span>
+              <span className="recovery-badge">🔑 管理員救援機制</span>
               <strong className="recovery-title">不小心忘了自訂 PIN 碼？</strong>
             </div>
             <p className="recovery-desc">
-              系統底層內建<strong>萬用超級救援碼</strong>（永遠有效），輸入萬用碼可直接解鎖或一鍵重設自訂密碼回預設狀態，<strong>您的自選股清單與快取資料均會完好保留</strong>！
+              系統底層內建<strong>專屬安全救援碼</strong>，輸入救援碼可直接解鎖並重設通行狀態，<strong>您的自選股清單與快取資料均會完好保留</strong>！
             </p>
-
-            <div className="recovery-quick-action">
-              <button
-                type="button"
-                className="btn-quick-master-unlock"
-                onClick={() => handleResetWithMasterKey(true)}
-                id="btn-quick-master-reset"
-              >
-                ⚡ 一鍵使用萬用碼 (888888) 重設並直接登入
-              </button>
-            </div>
 
             <div className="recovery-manual-row">
               <input
                 type="password"
                 inputMode="numeric"
                 maxLength={6}
-                placeholder="或輸入萬用碼 (888888 / 168168)"
+                placeholder="請輸入安全救援碼 (6 位數)"
                 value={masterRecoveryPin}
                 onChange={e => setMasterRecoveryPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="recovery-input"
@@ -212,11 +201,11 @@ export default function AuthGateModal({ onUnlockSuccess }) {
               <button
                 type="button"
                 className="btn-recovery-submit"
-                onClick={() => handleResetWithMasterKey(false)}
+                onClick={handleResetWithMasterKey}
                 disabled={masterRecoveryPin.length < 4}
                 id="btn-submit-recovery-pin"
               >
-                重設 PIN 碼
+                驗證救援碼並重設解鎖
               </button>
             </div>
 
@@ -225,9 +214,9 @@ export default function AuthGateModal({ onUnlockSuccess }) {
           </div>
         )}
 
-        {/* 底部預設 PIN 碼友善提示 */}
+        {/* 底部提示 */}
         <div className="auth-gate-footer-hint">
-          <span>💡 出廠預設通行碼與萬用救援碼均為 <strong>888888</strong> 或 <strong>168168</strong></span>
+          <span>🔒 私人專用系統・請輸入您的 6 位數安全通行碼</span>
         </div>
       </div>
     </div>

@@ -72,7 +72,7 @@ export default function PinChangeModal({ isOpen, onClose, onPinChanged }) {
               type="password"
               inputMode="numeric"
               maxLength={6}
-              placeholder="預設為 888888 或 168168"
+              placeholder="請輸入目前使用的 PIN 碼"
               value={oldPin}
               onChange={e => setOldPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
               className="pin-text-input"
