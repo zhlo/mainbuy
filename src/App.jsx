@@ -343,9 +343,19 @@ export default function App() {
     }
     const target = stocks.find(s => s.code === code);
     if (target) {
-      saveStockToLocalCache(target);
-      if (!target.hasRealBrokerReport && dataSourceConfig.mode === 'live') {
-        syncSingleStock(code, target, true);
+      if (!target.isFullMarketSummary) {
+        saveStockToLocalCache(target);
+      }
+      if ((target.isFullMarketSummary || !target.hasRealBrokerReport) && dataSourceConfig.mode === 'live') {
+        setToastMessage(`🔄 正在為【${code} ${target.name}】即時載入完整 243 日 K 線與券商分點日報表...`);
+        syncSingleStock(code, target, true).then(updated => {
+          if (updated) {
+            setToastMessage(`✅【${code} ${updated.name}】完整 K 線與分點資料載入完成！`);
+            setTimeout(() => setToastMessage(''), 2500);
+          } else {
+            setToastMessage('');
+          }
+        });
       }
     }
   };

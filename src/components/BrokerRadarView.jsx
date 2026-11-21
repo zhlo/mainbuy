@@ -39,9 +39,10 @@ export default function BrokerRadarView({ stocks, onSelectStockWithBroker }) {
     );
   }, [allAvailableBrokers, filteredBrokers, selectedBrokerId]);
 
-  // 反查該券商分點在所有個股的區間買賣超、金額與損益
+  // 反查該券商分點在所有個股的區間買賣超、金額與損益（僅掃描已載入分點報表之個股，保持全市場 2,000 檔高效能）
   const brokerHoldingsAcrossStocks = useMemo(() => {
     return stocks
+      .filter(s => s.hasRealBrokerReport || s.brokerSeries)
       .map(stock => {
         const endIdx = stock.kline.length - 1;
         const analysis = computePeriodChipAnalysis(stock, endIdx, periodDays);

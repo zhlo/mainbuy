@@ -674,10 +674,84 @@ export async function fetchBrokerReportFromPortal(code, days = 1, currentPrice =
   return null;
 }
 
+// 還原壓縮格式之單一分點 60 日真實逐日買賣超 ([date, buy, sell, net] -> 完整日序列)
+export function expandCompactBrokerHistory(rawHist, kline = []) {
+  if (!Array.isArray(rawHist) || rawHist.length === 0) return null;
+  if (!Array.isArray(rawHist[0])) return rawHist; // 已經是展開後物件格式
+  const byDate = {};
+  let latestDateKey = '';
+  let earliestDateKey = '';
+  for (const row of rawHist) {
+    const [dateKey, buy, sell, net] = row;
+    if (!dateKey) continue;
+    if (!latestDateKey || dateKey > latestDateKey) latestDateKey = dateKey;
+    if (!earliestDateKey || dateKey < earliestDateKey) earliestDateKey = dateKey;
+    byDate[dateKey] = { buy: Number(buy) || 0, sell: Number(sell) || 0, net: Number(net) || 0 };
+  }
+  let cumNet = 0;
+  return kline.map(day => {
+    const rec = byDate[day.date];
+    if (rec) {
+      cumNet += rec.net;
+      const avgBuy = Number((day.close * 0.999).toFixed(2));
+      const avgSell = Number((day.close * 1.001).toFixed(2));
+      const metrics = computeBrokerProfitMetrics(rec.buy, rec.sell, avgBuy, avgSell, day.close);
+      return {
+        date: day.date,
+        buy: rec.buy,
+        sell: rec.sell,
+        net: rec.net,
+        vol: rec.buy + rec.sell,
+        avgBuy,
+        avgSell,
+        ...metrics,
+        cumNet,
+        isRealDaily: true,
+        chipPending: false
+      };
+    }
+    if (latestDateKey && day.date > latestDateKey) {
+      return {
+        date: day.date,
+        buy: null,
+        sell: null,
+        net: null,
+        vol: null,
+        avgBuy: day.close,
+        avgSell: day.close,
+        profitWan: 0,
+        cumNet,
+        isRealDaily: false,
+        chipPending: true
+      };
+    }
+    const isWithinRange =
+      earliestDateKey && day.date >= earliestDateKey && (!latestDateKey || day.date <= latestDateKey);
+    return {
+      date: day.date,
+      buy: 0,
+      sell: 0,
+      net: 0,
+      vol: 0,
+      avgBuy: day.close,
+      avgSell: day.close,
+      profitWan: 0,
+      cumNet,
+      isRealDaily: Boolean(isWithinRange),
+      chipPending: false
+    };
+  });
+}
+
 // 根據 kline、realBrokerReports 與 realBrokerDailyHistory 在瀏覽器端建立完整分點序列與動能指標
 export function hydrateStockBrokerSeries(stock) {
   const kline = stock.kline || [];
   const momentum = stock.momentum || computeStockMomentum(kline);
+
+  // 全市場選股池摘要股（尚未點入個股詳情）無需預先展開龐大 brokerSeries，保持 2,000 檔秒開效能
+  if (stock.isFullMarketSummary && !stock.hasRealBrokerReport) {
+    return { ...stock, momentum };
+  }
 
   if (stock.brokerSeries && Object.keys(stock.brokerSeries).length > 30) {
     return { ...stock, momentum };
@@ -686,7 +760,12 @@ export function hydrateStockBrokerSeries(stock) {
   const lastDay = kline[kline.length - 1] || { volume: 1000, close: stock.price };
   const vol1 = Math.max(1, lastDay.volume);
   const realBrokerReports = stock.realBrokerReports || {};
-  const realBrokerDailyHistory = stock.realBrokerDailyHistory || {};
+  const rawDailyHistory = stock.realBrokerDailyHistory || {};
+  const realBrokerDailyHistory = {};
+  Object.entries(rawDailyHistory).forEach(([bid, h]) => {
+    const expanded = expandCompactBrokerHistory(h, kline);
+    if (expanded) realBrokerDailyHistory[bid] = expanded;
+  });
   const rep1EndCompact = realBrokerReports[1]?.dateRangeEnd || '';
 
   const allKnownBrokers = [...BROKER_LIST];
@@ -882,6 +961,7 @@ export function hydrateStockBrokerSeries(stock) {
   return {
     ...stock,
     ...calculatedSlopes,
+    realBrokerDailyHistory,
     momentum,
     brokerSeries
   };
@@ -932,19 +1012,29 @@ export function clearLocalStockCache() {
   }
 }
 
-// 嘗試載入由 GitHub Actions 定期從證交所/櫃買中心/券商網站抓取的 /live-data.json 快照，並自動合併使用者搜尋過的本機快取個股
+// 嘗試並行載入 /live-data.json（重點深度分點股）與 /market-stocks.json（全台股近 2,000 檔上市櫃完整選股池），並自動合併本機快取
 export async function fetchPrebuiltCloudSnapshot() {
   try {
-    const res = await fetch('./live-data.json?t=' + Date.now());
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
-      const cachedMap = loadCachedStocksFromStorage();
-      const cloudCodes = new Set(data.stocks.map(s => s.code));
+    const ts = Date.now();
+    const [liveRes, marketRes] = await Promise.all([
+      fetch('./live-data.json?t=' + ts).catch(() => null),
+      fetch('./market-stocks.json?t=' + ts).catch(() => null)
+    ]);
 
-      const mergedStocks = data.stocks.map(s => {
+    const liveData = liveRes && liveRes.ok ? await liveRes.json().catch(() => null) : null;
+    const marketData = marketRes && marketRes.ok ? await marketRes.json().catch(() => null) : null;
+
+    if ((!liveData || !Array.isArray(liveData.stocks)) && (!marketData || !Array.isArray(marketData.stocks))) {
+      return null;
+    }
+
+    const cachedMap = loadCachedStocksFromStorage();
+    const deepMap = new Map();
+
+    // 1. 先載入重點 51 檔完整分點深度資料
+    if (liveData && Array.isArray(liveData.stocks)) {
+      for (const s of liveData.stocks) {
         const localVer = cachedMap[s.code];
-        // 若本機快取有更新的分點逐日歷史，予以合併
         const merged = localVer
           ? {
               ...s,
@@ -956,21 +1046,44 @@ export async function fetchPrebuiltCloudSnapshot() {
               isUserCached: Boolean(localVer.isUserCached)
             }
           : s;
-        return hydrateStockBrokerSeries(merged);
-      });
-
-      // 將使用者曾搜尋過、但不在預設清單內的額外個股一併放入選股池
-      Object.values(cachedMap).forEach(cachedStock => {
-        if (cachedStock?.code && !cloudCodes.has(cachedStock.code) && Array.isArray(cachedStock.kline)) {
-          mergedStocks.push(hydrateStockBrokerSeries(cachedStock));
-        }
-      });
-
-      return {
-        ...data,
-        stocks: mergedStocks
-      };
+        deepMap.set(s.code, hydrateStockBrokerSeries(merged));
+      }
     }
+
+    // 2. 合併全台股近 2,000 檔上市櫃股票（深度股優先保留，其餘為輕量高速選股摘要，點入個股時自動即時補抓完整分點與 243 日 K 線）
+    const mergedStocks = [];
+    const seenCodes = new Set();
+
+    // 先將深度股放入前方
+    for (const [code, stock] of deepMap.entries()) {
+      mergedStocks.push(stock);
+      seenCodes.add(code);
+    }
+
+    // 再加入本機曾查詢過且具備完整分點資料的個股
+    Object.values(cachedMap).forEach(cachedStock => {
+      if (cachedStock?.code && !seenCodes.has(cachedStock.code) && Array.isArray(cachedStock.kline)) {
+        mergedStocks.push(hydrateStockBrokerSeries(cachedStock));
+        seenCodes.add(cachedStock.code);
+      }
+    });
+
+    // 最後將全市場其餘上市櫃個股全部併入選股池
+    if (marketData && Array.isArray(marketData.stocks)) {
+      for (const ms of marketData.stocks) {
+        if (!ms?.code || seenCodes.has(ms.code)) continue;
+        mergedStocks.push(ms);
+        seenCodes.add(ms.code);
+      }
+    }
+
+    return {
+      updatedAt: liveData?.updatedAt || marketData?.updatedAt || new Date().toISOString(),
+      latestDate: liveData?.latestDate || marketData?.latestDate || '',
+      taiex: liveData?.taiex || null,
+      totalMarketCount: mergedStocks.length,
+      stocks: mergedStocks
+    };
   } catch {
     // ignore if snapshot not yet generated
   }
@@ -1509,6 +1622,7 @@ export async function fetchOfficialStockData(
 
   const builtStock = hydrateStockBrokerSeries({
     ...(fallbackStock || {}),
+    isFullMarketSummary: false,
     code,
     name: dirInfo.name,
     market: dirInfo.market,

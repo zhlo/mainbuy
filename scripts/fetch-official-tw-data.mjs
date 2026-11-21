@@ -204,7 +204,13 @@ async function crawlSingleStock(base, token) {
           chunk.map(async b => {
             const hist = await fetchDirectSingleBrokerHistory(b.zco0Path, stock.kline);
             if (hist && Array.isArray(hist) && hist.length > 0) {
-              stock.realBrokerDailyHistory[b.id] = hist;
+              // 僅儲存有真實交易紀錄之精簡陣列 [date, buy, sell, net]，使 live-data.json 體積縮小 90% 且零資料遺失
+              const compact = hist
+                .filter(d => d && d.net !== null && (d.isRealDaily || d.buy > 0 || d.sell > 0 || d.net !== 0))
+                .map(d => [d.date, d.buy, d.sell, d.net]);
+              if (compact.length > 0) {
+                stock.realBrokerDailyHistory[b.id] = compact;
+              }
             }
           })
         );

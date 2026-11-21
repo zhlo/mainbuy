@@ -1463,7 +1463,7 @@ export default function StockScreener({
             </thead>
 
             <tbody>
-              {filteredStocks.map(stock => {
+              {paginatedStocks.map(stock => {
                 const isPinned = pinnedCodes.includes(stock.code);
                 const isPreviewSelected = previewStock?.code === stock.code;
                 const priceColor = getSignedColorClass(stock.changePct);
@@ -1687,6 +1687,92 @@ export default function StockScreener({
               })}
             </tbody>
           </table>
+
+          {/* 全市場近 2,000 檔高速分頁列 */}
+          {filteredStocks.length > 0 && (
+            <div
+              className="screener-pagination-bar"
+              id="screener-pagination-bar"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '10px',
+                padding: '10px 14px',
+                borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+                background: 'rgba(15, 23, 42, 0.45)',
+                fontSize: '12.5px',
+                color: '#cbd5e1'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span>
+                  全市場共 <strong style={{ color: '#f8fafc' }}>{stocks.length.toLocaleString()}</strong> 檔，目前篩選符合{' '}
+                  <strong style={{ color: '#38bdf8' }}>{filteredStocks.length.toLocaleString()}</strong> 檔（顯示第{' '}
+                  <strong>{(safePage - 1) * pageSize + 1}</strong> ~{' '}
+                  <strong>{Math.min(safePage * pageSize, filteredStocks.length)}</strong> 檔）
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={e => setPageSize(Number(e.target.value))}
+                  style={{
+                    background: '#1e293b',
+                    color: '#f8fafc',
+                    border: '1px solid #475569',
+                    borderRadius: '6px',
+                    padding: '3px 8px',
+                    fontSize: '12px'
+                  }}
+                  id="select-page-size"
+                  title="切換每頁顯示筆數"
+                >
+                  <option value={50}>每頁 50 檔</option>
+                  <option value={100}>每頁 100 檔</option>
+                  <option value={200}>每頁 200 檔</option>
+                  <option value={500}>每頁 500 檔</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  className="btn-toolbar-action"
+                  disabled={safePage <= 1}
+                  onClick={() => setCurrentPage(1)}
+                  style={{ opacity: safePage <= 1 ? 0.4 : 1, padding: '4px 9px' }}
+                >
+                  ⏮ 首頁
+                </button>
+                <button
+                  className="btn-toolbar-action"
+                  disabled={safePage <= 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  style={{ opacity: safePage <= 1 ? 0.4 : 1, padding: '4px 10px' }}
+                >
+                  ◀ 上一頁
+                </button>
+                <span style={{ padding: '0 8px', fontWeight: 600, color: '#f8fafc' }}>
+                  第 {safePage} / {totalPages} 頁
+                </span>
+                <button
+                  className="btn-toolbar-action"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  style={{ opacity: safePage >= totalPages ? 0.4 : 1, padding: '4px 10px' }}
+                >
+                  下一頁 ▶
+                </button>
+                <button
+                  className="btn-toolbar-action"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setCurrentPage(totalPages)}
+                  style={{ opacity: safePage >= totalPages ? 0.4 : 1, padding: '4px 9px' }}
+                >
+                  末頁 ⏭
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 右側免跳頁個股 K 線與分點拔河快覽抽屜 */}

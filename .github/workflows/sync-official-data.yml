@@ -37,7 +37,10 @@ jobs:
       - name: Fetch Official Taiwan Stock & Broker Branch Daily Reports
         run: node scripts/fetch-official-tw-data.mjs
 
-      - name: Build production bundle (including live-data.json & CNAME)
+      - name: Fetch All Taiwan Listed & OTC Stocks (TWSE + TPEx)
+        run: node scripts/fetch-all-tw-market.mjs || true
+
+      - name: Build production bundle (including live-data.json, market-stocks.json & CNAME)
         run: |
           npm run build
           cp public/CNAME dist/CNAME
