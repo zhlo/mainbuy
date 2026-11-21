@@ -371,6 +371,7 @@ export default function StockDetail({
   const resolveBrokerSeries = (targetId) => {
     if (dynamicBrokerHistories[targetId]) return dynamicBrokerHistories[targetId];
     if (stock.realBrokerDailyHistory?.[targetId]) return stock.realBrokerDailyHistory[targetId];
+    if (activeStock.brokerSeries?.[targetId]) return activeStock.brokerSeries[targetId];
     if (stock.brokerSeries?.[targetId]) return stock.brokerSeries[targetId];
 
     const realReports = stock.realBrokerReports || {};
@@ -426,10 +427,16 @@ export default function StockDetail({
         dayNet = Math.round(prev5Avg * (0.8 + ((dIdx * 11) % 5) * 0.1));
         dayBuy = Math.max(0, dayNet > 0 ? dayNet + 20 : 15);
         daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 20 : 15);
-      } else {
-        dayNet = Math.round(prev10Avg * (0.7 + ((dIdx * 13) % 7) * 0.1));
+      } else if (fromEnd <= 19) {
+        dayNet = Math.round(prev10Avg * (0.75 + ((dIdx * 13) % 7) * 0.08));
         dayBuy = Math.max(0, dayNet > 0 ? dayNet + 25 : 20);
         daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 25 : 20);
+      } else {
+        const volRatio = Math.min(2.0, Math.max(0.4, (day.volume || 1000) / 1000));
+        const dir = (day.changePct || 0) >= 0 ? 1 : -1;
+        dayNet = Math.round((prev10Avg || 10) * 0.3 * volRatio * dir);
+        dayBuy = Math.max(0, dayNet > 0 ? dayNet + 10 : 5);
+        daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 10 : 5);
       }
       cumNet += dayNet;
       return {

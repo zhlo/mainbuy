@@ -15,7 +15,8 @@ import {
   fetchOfficialTaiexData,
   fetchYahooKlineSeries,
   parseMoneyDjBrokerHtml,
-  parseMoneyDjSingleBrokerHistoryHtml
+  parseMoneyDjSingleBrokerHistoryHtml,
+  normalizeZco0Path
 } from '../src/services/liveStockService.js';
 
 function classifyCandleType(open, high, low, close) {
@@ -65,7 +66,7 @@ async function fetchDirectBrokerHtml(code, days, currentPrice) {
 
 async function fetchDirectSingleBrokerHistory(zco0Path, kline) {
   if (!zco0Path) return null;
-  const relPath = zco0Path.startsWith('/') ? zco0Path : `/${zco0Path}`;
+  const relPath = normalizeZco0Path(zco0Path);
   for (const host of BROKER_PORTAL_HOSTS.slice(0, 2)) {
     const url = `${host}${relPath}`;
     try {
@@ -180,15 +181,34 @@ async function crawlSingleStock(base, token) {
       }
       stock.hasRealBrokerReport = true;
 
-      // 抓取買超第1名與賣超第1名分點的過去60天真實逐日買賣超 (zco0.djhtm)
-      const topBuyer = rep1.buyers?.[0];
-      const topSeller = rep1.sellers?.[0];
-      const [buyerHist, sellerHist] = await Promise.all([
-        topBuyer?.zco0Path ? fetchDirectSingleBrokerHistory(topBuyer.zco0Path, stock.kline) : null,
-        topSeller?.zco0Path ? fetchDirectSingleBrokerHistory(topSeller.zco0Path, stock.kline) : null
-      ]);
-      if (buyerHist && topBuyer) stock.realBrokerDailyHistory[topBuyer.id] = buyerHist;
-      if (sellerHist && topSeller) stock.realBrokerDailyHistory[topSeller.id] = sellerHist;
+      // 抓取買超前15名與賣超前15名分點過去 60 天真實逐日買賣超 (zco0.djhtm &c=3)
+      const candidateBrokers = [
+        ...(rep1.buyers || []).slice(0, 15),
+        ...(rep1.sellers || []).slice(0, 15)
+      ].filter(b => b && b.zco0Path);
+
+      const uniqueBrokers = [];
+      const seenIds = new Set();
+      for (const b of candidateBrokers) {
+        if (!seenIds.has(b.id)) {
+          seenIds.add(b.id);
+          uniqueBrokers.push(b);
+        }
+      }
+
+      // 每次 6 家分點並行抓取，兼顧速度與連線穩定
+      const CHUNK_SIZE = 6;
+      for (let ci = 0; ci < uniqueBrokers.length; ci += CHUNK_SIZE) {
+        const chunk = uniqueBrokers.slice(ci, ci + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async b => {
+            const hist = await fetchDirectSingleBrokerHistory(b.zco0Path, stock.kline);
+            if (hist && Array.isArray(hist) && hist.length > 0) {
+              stock.realBrokerDailyHistory[b.id] = hist;
+            }
+          })
+        );
+      }
     }
     if (rep5) {
       stock.realBrokerReports[5] = rep5;
