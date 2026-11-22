@@ -725,7 +725,9 @@ export default function StockScreener({
           ? valA.localeCompare(valB)
           : valB.localeCompare(valA);
       }
-      return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
+      const numA = Number.isFinite(Number(valA)) ? Number(valA) : -Infinity;
+      const numB = Number.isFinite(Number(valB)) ? Number(valB) : -Infinity;
+      return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
     });
 
     return list;
@@ -741,6 +743,21 @@ export default function StockScreener({
     pinnedCodes,
     allStrategiesList
   ]);
+
+  // 全市場近 2,000 檔高速分頁（每頁預設 100 檔，確保 60 FPS 流暢篩選與排序）
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [marketScope, momentumTarget, momentumStage, searchQuery, activeStrategyIds, customFilters, sortConfig, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredStocks.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedStocks = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredStocks.slice(start, start + pageSize);
+  }, [filteredStocks, safePage, pageSize]);
 
   const previewStock = useMemo(() => {
     return (
