@@ -356,8 +356,8 @@ async function main() {
   validDates.sort();
   console.log(`📈 成功抓取 ${validDates.length} 個完整全市場交易日行情 (${validDates[0]} ~ ${validDates[validDates.length - 1]})`);
 
-  // 3. 分批抓取近 10 個交易日之全市場三大法人買賣超
-  const instDates = validDates.slice(-10);
+  // 3. 分批抓取全部 22 個交易日之全市場三大法人買賣超（完全不依賴 FinMind，杜絕任何 chipPending 缺口）
+  const instDates = validDates;
   const dailyInstByDate = new Map();
 
   for (let i = 0; i < instDates.length; i += 3) {

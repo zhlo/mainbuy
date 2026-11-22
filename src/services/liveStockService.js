@@ -748,9 +748,13 @@ export function hydrateStockBrokerSeries(stock) {
   const kline = stock.kline || [];
   const momentum = stock.momentum || computeStockMomentum(kline);
 
-  // 全市場選股池摘要股（尚未點入個股詳情）無需預先展開龐大 brokerSeries，保持 2,000 檔秒開效能
-  if (stock.isFullMarketSummary && !stock.hasRealBrokerReport) {
-    return { ...stock, momentum };
+  // 全市場選股池摘要股，或尚未取得真實券商分點日報表的個股：絕不合成假分點序列
+  const hasRealReports =
+    stock.hasRealBrokerReport ||
+    (stock.realBrokerReports && Object.keys(stock.realBrokerReports).length > 0) ||
+    (stock.realBrokerDailyHistory && Object.keys(stock.realBrokerDailyHistory).length > 0);
+  if (!hasRealReports) {
+    return { ...stock, momentum, brokerSeries: {} };
   }
 
   if (stock.brokerSeries && Object.keys(stock.brokerSeries).length > 30) {
@@ -1302,17 +1306,38 @@ export async function fetchOfficialStockData(
   }
 
   const instByDate = {};
+  // 先保留 fallbackStock（例如官方證交所/櫃買全市場快照 market-stocks.json）之真實三大法人買賣超，避免 FinMind 免費版延遲或 402 導致近 20 日籌碼被洗成 null
+  if (fallbackStock && Array.isArray(fallbackStock.kline)) {
+    fallbackStock.kline.forEach(d => {
+      if (!d || !d.date || d.chipPending) return;
+      if (d.foreignNet !== null && d.foreignNet !== undefined && d.mainNet !== null && d.mainNet !== undefined) {
+        const dashDate = d.date.replace(/\//g, '-');
+        instByDate[dashDate] = {
+          foreign: Number(d.foreignNet) || 0,
+          trust: Number(d.trustNet) || 0,
+          dealer: Number(d.dealerNet) || 0
+        };
+      }
+    });
+  }
+  const finmindInstByDate = {};
   instRows.forEach(r => {
-    if (!instByDate[r.date]) {
-      instByDate[r.date] = { foreign: 0, trust: 0, dealer: 0 };
+    if (!finmindInstByDate[r.date]) {
+      finmindInstByDate[r.date] = { foreign: 0, trust: 0, dealer: 0 };
     }
     const netLots = Math.round(((Number(r.buy) || 0) - (Number(r.sell) || 0)) / 1000);
     if (r.name === 'Foreign_Investor' || r.name === 'Foreign_Dealer_Self') {
-      instByDate[r.date].foreign += netLots;
+      finmindInstByDate[r.date].foreign += netLots;
     } else if (r.name === 'Investment_Trust') {
-      instByDate[r.date].trust += netLots;
+      finmindInstByDate[r.date].trust += netLots;
     } else if (r.name?.startsWith('Dealer')) {
-      instByDate[r.date].dealer += netLots;
+      finmindInstByDate[r.date].dealer += netLots;
+    }
+  });
+  Object.entries(finmindInstByDate).forEach(([dt, rec]) => {
+    // 僅在該日尚未有更精準官方證交所/櫃買資料時，使用 FinMind 歷史法人補齊更早期區間
+    if (!instByDate[dt]) {
+      instByDate[dt] = rec;
     }
   });
 

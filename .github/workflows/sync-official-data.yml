@@ -34,11 +34,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Fetch Official Taiwan Stock & Broker Branch Daily Reports
-        run: node scripts/fetch-official-tw-data.mjs
-
       - name: Fetch All Taiwan Listed & OTC Stocks (TWSE + TPEx)
         run: node scripts/fetch-all-tw-market.mjs || true
+
+      - name: Fetch Official Taiwan Stock & Broker Branch Daily Reports
+        run: node scripts/fetch-official-tw-data.mjs
 
       - name: Build production bundle (including live-data.json, market-stocks.json & CNAME)
         run: |

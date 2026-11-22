@@ -365,92 +365,47 @@ export default function StockDetail({
     }
   }, [isMarketIndex, selectedBrokerIds, stock.code, stock.kline, stock.realBrokerDailyHistory, chipAnalysis.allBrokers, dynamicBrokerHistories]);
 
-  const [mainSubchartFocus, setMainSubchartFocus] = useState('broker'); // 'broker' (鎖定勾選分點) | 'market' (全市場主力合計)
+  const hasRealBrokerData = Boolean(
+    stock?.hasRealBrokerReport ||
+      stock?.realBrokerReports?.[1]?.buyers?.length > 0 ||
+      Object.keys(stock?.realBrokerDailyHistory || {}).length > 0
+  );
 
-  // 解析或動態還原單一分點完整日報表歷史序列
+  const [mainSubchartFocus, setMainSubchartFocus] = useState(hasRealBrokerData ? 'broker' : 'market'); // 'broker' (鎖定勾選分點) | 'market' (全市場主力/法人合計)
+
+  useEffect(() => {
+    if (isMarketIndex) return;
+    if (!hasRealBrokerData) {
+      setMainSubchartFocus('market');
+      setSelectedBrokerIds([]);
+    } else {
+      setMainSubchartFocus('broker');
+    }
+  }, [stock?.code, hasRealBrokerData, isMarketIndex]);
+
+  // 僅回傳 100% 真實券商分點逐日歷史序列（絕不合成假 +11/-11 模擬柱）
   const resolveBrokerSeries = (targetId) => {
+    if (!hasRealBrokerData) return null;
     if (dynamicBrokerHistories[targetId]) return dynamicBrokerHistories[targetId];
     if (stock.realBrokerDailyHistory?.[targetId]) return stock.realBrokerDailyHistory[targetId];
+    if (activeStock.realBrokerDailyHistory?.[targetId]) return activeStock.realBrokerDailyHistory[targetId];
     if (activeStock.brokerSeries?.[targetId]) return activeStock.brokerSeries[targetId];
     if (stock.brokerSeries?.[targetId]) return stock.brokerSeries[targetId];
 
-    const realReports = stock.realBrokerReports || {};
-    const b1 = realReports[1]?.buyers?.find(b => b.id === targetId) || realReports[1]?.sellers?.find(b => b.id === targetId);
-    const b5 = realReports[5]?.buyers?.find(b => b.id === targetId) || realReports[5]?.sellers?.find(b => b.id === targetId);
-    const b10 = realReports[10]?.buyers?.find(b => b.id === targetId) || realReports[10]?.sellers?.find(b => b.id === targetId);
-    const b20 = realReports[20]?.buyers?.find(b => b.id === targetId) || realReports[20]?.sellers?.find(b => b.id === targetId);
-
+    // 若無真實逐日歷史，一律留空 (null)，絕不憑空合成假數據
     const kline = stock.kline || [];
-    let cumNet = 0;
-    let lastPublishedIdx = kline.length - 1;
-    while (lastPublishedIdx > 0 && kline[lastPublishedIdx]?.chipPending) {
-      lastPublishedIdx--;
-    }
-
-    const net1 = b1?.net ?? 0;
-    const net5 = b5?.net ?? net1 * 3;
-    const net10 = b10?.net ?? net5 * 1.6;
-    const net20 = b20?.net ?? net10 * 1.5;
-
-    const prev4Avg = Math.round((net5 - net1) / 4);
-    const prev5Avg = Math.round((net10 - net5) / 5);
-    const prev10Avg = Math.round((net20 - net10) / 10);
-
-    return kline.map((day, dIdx) => {
-      if (dIdx > lastPublishedIdx || day.chipPending) {
-        return {
-          date: day.date,
-          buy: null,
-          sell: null,
-          net: null,
-          vol: null,
-          avgBuy: day.close,
-          avgSell: day.close,
-          profitWan: 0,
-          cumNet,
-          chipPending: true
-        };
-      }
-      const fromEnd = lastPublishedIdx - dIdx;
-      let dayNet = 0;
-      let dayBuy = 0;
-      let daySell = 0;
-      if (fromEnd === 0) {
-        dayNet = net1;
-        dayBuy = b1?.buy ?? (net1 > 0 ? net1 : 0);
-        daySell = b1?.sell ?? (net1 < 0 ? Math.abs(net1) : 0);
-      } else if (fromEnd <= 4) {
-        dayNet = Math.round(prev4Avg * (0.8 + ((dIdx * 7) % 5) * 0.1));
-        dayBuy = Math.max(0, dayNet > 0 ? dayNet + 15 : 10);
-        daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 15 : 10);
-      } else if (fromEnd <= 9) {
-        dayNet = Math.round(prev5Avg * (0.8 + ((dIdx * 11) % 5) * 0.1));
-        dayBuy = Math.max(0, dayNet > 0 ? dayNet + 20 : 15);
-        daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 20 : 15);
-      } else if (fromEnd <= 19) {
-        dayNet = Math.round(prev10Avg * (0.75 + ((dIdx * 13) % 7) * 0.08));
-        dayBuy = Math.max(0, dayNet > 0 ? dayNet + 25 : 20);
-        daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 25 : 20);
-      } else {
-        const volRatio = Math.min(2.0, Math.max(0.4, (day.volume || 1000) / 1000));
-        const dir = (day.changePct || 0) >= 0 ? 1 : -1;
-        dayNet = Math.round((prev10Avg || 10) * 0.3 * volRatio * dir);
-        dayBuy = Math.max(0, dayNet > 0 ? dayNet + 10 : 5);
-        daySell = Math.max(0, dayNet < 0 ? Math.abs(dayNet) + 10 : 5);
-      }
-      cumNet += dayNet;
-      return {
-        date: day.date,
-        buy: dayBuy,
-        sell: daySell,
-        net: dayNet,
-        vol: dayBuy + daySell,
-        avgBuy: day.close,
-        avgSell: day.close,
-        cumNet,
-        chipPending: false
-      };
-    });
+    return kline.map(day => ({
+      date: day.date,
+      buy: null,
+      sell: null,
+      net: null,
+      vol: null,
+      avgBuy: day.close,
+      avgSell: day.close,
+      profitWan: 0,
+      cumNet: 0,
+      chipPending: true
+    }));
   };
 
   // 計算所勾選券商分點（可單選或複選「組群」）在可見區間內的每日買賣超與累計買賣超及成本線

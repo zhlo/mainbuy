@@ -301,11 +301,33 @@ async function main() {
     `📊 加權指數 TAIEX: ${taiex.price} (${taiex.change >= 0 ? '+' : ''}${taiex.change}, ${taiex.changePct}%), 台指期: ${taiex.futuresPrice || taiex.price}`
   );
 
+  // 讀取全市場官方 TWSE/TPEx 22日三大法人快照 (market-stocks.json)，補齊 FinMind 免費版近期缺口，確保 0 日 chipPending
+  const marketFallbackMap = new Map();
+  try {
+    const marketJson = JSON.parse(
+      await fs.readFile(path.resolve(process.cwd(), 'public/market-stocks.json'), 'utf8')
+    );
+    if (Array.isArray(marketJson?.stocks)) {
+      marketJson.stocks.forEach(ms => {
+        if (ms?.code) marketFallbackMap.set(ms.code, ms);
+      });
+      console.log(`🔗 已載入官方全市場 22 日法人快照 (${marketFallbackMap.size} 檔) 供深度股無縫對齊`);
+    }
+  } catch {
+    // ignore if not generated yet
+  }
+
   // 每次並行抓取 4 檔，兼顧速度與穩定度
   const BATCH_SIZE = 4;
   for (let i = 0; i < baseStocks.length; i += BATCH_SIZE) {
     const batch = baseStocks.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(batch.map(b => crawlSingleStock(b, token)));
+    const results = await Promise.all(
+      batch.map(b => {
+        const marketStock = marketFallbackMap.get(b.code);
+        const enrichedBase = marketStock ? { ...b, kline: marketStock.kline } : b;
+        return crawlSingleStock(enrichedBase, token);
+      })
+    );
     results.forEach(stock => {
       if (stock.latestTradeDate && stock.latestTradeDate > latestDate) {
         latestDate = stock.latestTradeDate;

@@ -417,7 +417,15 @@ const BASE_STOCKS = [
   { code: '2891', name: '中信金', market: '上市', industry: '金融-金控', price: 37.8, change: 0.5, changePct: 1.34, candleType: 'red-high', inCount: 0, inVol: 0, outCount: 1, outVol: 680, volume: 54100, warrantAmt: 2900, monthSlope: 0.2, lastWeekSlope: 0.6, nextWeekSlope: 0.2, bandWidth: 10, bandPos: 7, mainConsec: 3, foreignConsec: 2, trustConsec: 4, main1: 17, main5: 13, main10: 11, foreignPct: 6.5, foreignHoldPct: 41.2, trustPct: 3.1, trustHoldPct: 5.6, dealerPct: 0.5, dayTradePct: 11, marginPct: 0.2, shortPct: 0, shortMarginRatio: 0.5, biasYear: 18, biasQuarter: 6.4, biasMonth: 2.6, fromHigh: 9.2, fromLow: 1.44, maintRatio: 177, cumRevYoY: 26.4, revYoY: 31.8, revMoM: 6.8, epsQ: 0.98, eps4Q: 3.6, pe: 10.5, pb: 1.42, dividendYield: 5.2, divYears: 23, roe: 14.2, targetPrice: 42, capitalShares: 19500000 },
   { code: '2303', name: '聯電', market: '上市', industry: '電子上游-IC-代工', price: 50.8, change: 0.6, changePct: 1.2, candleType: 'red-cross', inCount: 0, inVol: 0, outCount: 1, outVol: 820, volume: 48500, warrantAmt: 3200, monthSlope: 0.1, lastWeekSlope: 0.4, nextWeekSlope: 0.1, bandWidth: 9, bandPos: 6, mainConsec: 2, foreignConsec: 1, trustConsec: 3, main1: 15, main5: 11, main10: 9, foreignPct: 5.2, foreignHoldPct: 42.6, trustPct: 2.8, trustHoldPct: 4.8, dealerPct: 0.5, dayTradePct: 16, marginPct: 0.2, shortPct: 0, shortMarginRatio: 1.1, biasYear: 8, biasQuarter: 3.2, biasMonth: 1.4, fromHigh: 8.4, fromLow: 1.22, maintRatio: 174, cumRevYoY: 11.2, revYoY: 14.5, revMoM: 3.2, epsQ: 1.12, eps4Q: 4.2, pe: 12.1, pb: 1.62, dividendYield: 6.1, divYears: 18, roe: 14.5, targetPrice: 58, capitalShares: 12500000 },
   { code: '3711', name: '日月光投控', market: '上市', industry: '電子上游-IC-封測', price: 162.0, change: 3.0, changePct: 1.89, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 1, outVol: 280, volume: 18200, warrantAmt: 2600, monthSlope: 0.3, lastWeekSlope: 0.9, nextWeekSlope: 0.3, bandWidth: 13, bandPos: 8, mainConsec: 3, foreignConsec: 3, trustConsec: 4, main1: 19, main5: 15, main10: 12, foreignPct: 7.4, foreignHoldPct: 62.4, trustPct: 3.4, trustHoldPct: 6.2, dealerPct: 0.7, dayTradePct: 18, marginPct: 0.4, shortPct: 0.1, shortMarginRatio: 1.5, biasYear: 21, biasQuarter: 7.8, biasMonth: 3.2, fromHigh: 9.1, fromLow: 1.58, maintRatio: 176, cumRevYoY: 15.6, revYoY: 19.2, revMoM: 4.8, epsQ: 2.45, eps4Q: 9.1, pe: 17.8, pb: 2.45, dividendYield: 3.4, divYears: 19, roe: 15.2, targetPrice: 185, capitalShares: 4350000 },
-  { code: '1503', name: '士電', market: '上市', industry: '傳產-重電能源', price: 224.0, change: 6.0, changePct: 2.75, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 2, outVol: 290, volume: 8400, warrantAmt: 1900, monthSlope: 0.4, lastWeekSlope: 1.2, nextWeekSlope: 0.4, bandWidth: 16, bandPos: 9, mainConsec: 2, foreignConsec: 2, trustConsec: 3, main1: 18, main5: 13, main10: 10, foreignPct: 6.5, foreignHoldPct: 21.4, trustPct: 2.8, trustHoldPct: 4.9, dealerPct: 0.6, dayTradePct: 42, marginPct: 1.1, shortPct: 0.3, shortMarginRatio: 4.5, biasYear: 31, biasQuarter: 9.8, biasMonth: 4.2, fromHigh: 8.6, fromLow: 1.95, maintRatio: 166, cumRevYoY: 21.8, revYoY: 26.4, revMoM: 6.8, epsQ: 1.65, eps4Q: 5.9, pe: 38.0, pb: 5.2, dividendYield: 1.6, divYears: 12, roe: 14.8, targetPrice: 260, capitalShares: 520000 }
+  { code: '1503', name: '士電', market: '上市', industry: '傳產-重電能源', price: 224.0, change: 6.0, changePct: 2.75, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 2, outVol: 290, volume: 8400, warrantAmt: 1900, monthSlope: 0.4, lastWeekSlope: 1.2, nextWeekSlope: 0.4, bandWidth: 16, bandPos: 9, mainConsec: 2, foreignConsec: 2, trustConsec: 3, main1: 18, main5: 13, main10: 10, foreignPct: 6.5, foreignHoldPct: 21.4, trustPct: 2.8, trustHoldPct: 4.9, dealerPct: 0.6, dayTradePct: 42, marginPct: 1.1, shortPct: 0.3, shortMarginRatio: 4.5, biasYear: 31, biasQuarter: 9.8, biasMonth: 4.2, fromHigh: 8.6, fromLow: 1.95, maintRatio: 166, cumRevYoY: 21.8, revYoY: 26.4, revMoM: 6.8, epsQ: 1.65, eps4Q: 5.9, pe: 38.0, pb: 5.2, dividendYield: 1.6, divYears: 12, roe: 14.8, targetPrice: 260, capitalShares: 520000 },
+  { code: '2449', name: '京元電子', market: '上市', industry: '電子上游-IC-封測', price: 157.5, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 25000, warrantAmt: 1800, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 15, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 35, trustPct: 0, trustHoldPct: 5, dealerPct: 0, dayTradePct: 30, marginPct: 0, shortPct: 0, shortMarginRatio: 1.5, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.0, fromLow: 1.4, maintRatio: 165, cumRevYoY: 20, revYoY: 20, revMoM: 2, epsQ: 1.8, eps4Q: 7.0, pe: 22, pb: 3.5, dividendYield: 2.5, divYears: 15, roe: 16, targetPrice: 180, capitalShares: 1222745 },
+  { code: '2884', name: '玉山金', market: '上市', industry: '金融保險', price: 39.6, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 40000, warrantAmt: 900, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 10, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 30, trustPct: 0, trustHoldPct: 3, dealerPct: 0, dayTradePct: 12, marginPct: 0, shortPct: 0, shortMarginRatio: 1.0, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 9.0, fromLow: 1.2, maintRatio: 170, cumRevYoY: 12, revYoY: 12, revMoM: 1, epsQ: 0.5, eps4Q: 2.0, pe: 16, pb: 2.2, dividendYield: 3.5, divYears: 18, roe: 11, targetPrice: 42, capitalShares: 15996000 },
+  { code: '2357', name: '華碩', market: '上市', industry: '電腦週邊', price: 620, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 6000, warrantAmt: 1200, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 14, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 45, trustPct: 0, trustHoldPct: 6, dealerPct: 0, dayTradePct: 22, marginPct: 0, shortPct: 0, shortMarginRatio: 1.5, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.5, fromLow: 1.3, maintRatio: 168, cumRevYoY: 15, revYoY: 15, revMoM: 2, epsQ: 10, eps4Q: 40, pe: 15, pb: 1.8, dividendYield: 4.0, divYears: 20, roe: 13, targetPrice: 680, capitalShares: 742760 },
+  { code: '2379', name: '瑞昱', market: '上市', industry: '半導體業', price: 540, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 4000, warrantAmt: 1000, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 14, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 50, trustPct: 0, trustHoldPct: 5, dealerPct: 0, dayTradePct: 20, marginPct: 0, shortPct: 0, shortMarginRatio: 1.2, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.5, fromLow: 1.3, maintRatio: 170, cumRevYoY: 14, revYoY: 14, revMoM: 2, epsQ: 8, eps4Q: 30, pe: 18, pb: 4.5, dividendYield: 3.8, divYears: 20, roe: 25, targetPrice: 600, capitalShares: 512863 },
+  { code: '8069', name: '元太', market: '上櫃', industry: '光電業', price: 124.5, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 9000, warrantAmt: 1100, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 16, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 40, trustPct: 0, trustHoldPct: 5, dealerPct: 0, dayTradePct: 28, marginPct: 0, shortPct: 0, shortMarginRatio: 1.8, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.0, fromLow: 1.3, maintRatio: 165, cumRevYoY: 12, revYoY: 12, revMoM: 2, epsQ: 2, eps4Q: 8, pe: 15, pb: 2.0, dividendYield: 4.5, divYears: 14, roe: 15, targetPrice: 160, capitalShares: 1149500 },
+  { code: '3443', name: '創意', market: '上市', industry: '半導體業', price: 1400, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 3500, warrantAmt: 1600, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 18, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 35, trustPct: 0, trustHoldPct: 6, dealerPct: 0, dayTradePct: 38, marginPct: 0, shortPct: 0, shortMarginRatio: 2.5, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.2, fromLow: 1.4, maintRatio: 166, cumRevYoY: 16, revYoY: 16, revMoM: 3, epsQ: 7, eps4Q: 28, pe: 45, pb: 14, dividendYield: 1.2, divYears: 15, roe: 30, targetPrice: 1650, capitalShares: 134011 },
+  { code: '3653', name: '健策', market: '上市', industry: '電子零組件', price: 1450, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 2200, warrantAmt: 1400, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 18, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 40, trustPct: 0, trustHoldPct: 7, dealerPct: 0, dayTradePct: 32, marginPct: 0, shortPct: 0, shortMarginRatio: 2.0, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.5, fromLow: 1.5, maintRatio: 168, cumRevYoY: 25, revYoY: 25, revMoM: 4, epsQ: 7, eps4Q: 28, pe: 45, pb: 12, dividendYield: 1.0, divYears: 12, roe: 25, targetPrice: 1700, capitalShares: 142891 },
+  { code: '3583', name: '辛耘', market: '上市', industry: '其他電子', price: 420, change: 0, changePct: 0, candleType: 'red-full', inCount: 0, inVol: 0, outCount: 0, outVol: 0, volume: 4500, warrantAmt: 1200, monthSlope: 0, lastWeekSlope: 0, nextWeekSlope: 0, bandWidth: 18, bandPos: 6, mainConsec: 0, foreignConsec: 0, trustConsec: 0, main1: 0, main5: 0, main10: 0, foreignPct: 0, foreignHoldPct: 22, trustPct: 0, trustHoldPct: 5, dealerPct: 0, dayTradePct: 40, marginPct: 0, shortPct: 0, shortMarginRatio: 2.2, biasYear: 0, biasQuarter: 0, biasMonth: 0, fromHigh: 8.2, fromLow: 1.5, maintRatio: 165, cumRevYoY: 30, revYoY: 30, revMoM: 5, epsQ: 3, eps4Q: 12, pe: 35, pb: 6.5, dividendYield: 1.5, divYears: 12, roe: 18, targetPrice: 480, capitalShares: 80329 }
 ];
 
 function seededRandom(seed) {
@@ -786,56 +794,54 @@ export function computePeriodChipAnalysis(stock, endIdx, periodDays = 1) {
     };
   }
 
-  // 若個股缺少分點逐日歷史 (例如剛從 localStorage 載入之精簡結構)，即時建立保證資料充實
-  let activeBrokerSeries = stock.brokerSeries;
+  // 若個股無真實券商分點報表與真實分點逐日歷史，絕不合成假 BROKER_LIST 模擬分點，直接回傳空分點清單（由前端自動切換為 100% 真實官方三大法人買賣超）
+  const activeBrokerSeries = stock.brokerSeries;
   if (!activeBrokerSeries || Object.keys(activeBrokerSeries).length === 0) {
-    activeBrokerSeries = {};
-    BROKER_LIST.forEach((broker, bIdx) => {
-      let cumNet = 0;
-      activeBrokerSeries[broker.id] = kline.map((day, dIdx) => {
-        const daySeed = ((dIdx + 1) * 7 + (bIdx + 1) * 13) % 100;
-        const mainBiasedRatio = (day.mainNet || 0) >= 0 ? 0.55 : 0.45;
-        const isBuyer =
-          broker.type === '外資'
-            ? (day.foreignNet || 0) > 0 || daySeed < 40
-            : broker.type === '官股行庫'
-              ? (day.mainNet || 0) < 0 || daySeed < 55
-              : daySeed < Math.round(mainBiasedRatio * 100);
+    const instNet = periodSlice.reduce((s, d) => s + (d.mainNet || 0), 0);
+    const chipConcentrationPct =
+      periodVol > 0 ? Number(((instNet / periodVol) * 100).toFixed(2)) : 0;
+    const start20 = Math.max(0, safeEnd - 19);
+    const slice20 = kline.slice(start20, safeEnd + 1);
+    const vol20 = slice20.reduce((s, d) => s + (d.volume || 0), 0);
+    const main20 = slice20.reduce((s, d) => s + (d.mainNet || 0), 0);
+    const chip20Pct = vol20 > 0 ? Number(((main20 / vol20) * 100).toFixed(2)) : 0;
+    const turnoverPct = stock.capitalShares
+      ? Number(((periodVol / stock.capitalShares) * 100).toFixed(2))
+      : 0;
+    const startClose = periodSlice[0]?.close || endClosePrice;
+    const periodReturnPct =
+      startClose > 0 ? Number((((endClosePrice - startClose) / startClose) * 100).toFixed(2)) : 0;
 
-        const baseLots = Math.max(
-          1,
-          Math.round((day.volume || 1000) * 0.02 * ((bIdx % 5) * 0.2 + 0.6))
-        );
-        const intensity = 0.5 + (((bIdx * 17 + dIdx) % 10) * 0.12);
-        const lotBase = Math.max(2, Math.round(baseLots * intensity));
-
-        let buy, sell, net;
-        if (isBuyer) {
-          const buyBias = 1.25 + ((bIdx % 4) * 0.2);
-          buy = Math.max(1, Math.round(lotBase * buyBias));
-          sell = Math.max(0, Math.round(lotBase * 0.45));
-          net = buy - sell;
-        } else {
-          const sellBias = 1.25 + ((bIdx % 4) * 0.2);
-          sell = Math.max(1, Math.round(lotBase * sellBias));
-          buy = Math.max(0, Math.round(lotBase * 0.45));
-          net = buy - sell;
-        }
-        cumNet += net;
-        const avgBuy = Number((day.close * 0.998).toFixed(2));
-        const avgSell = Number((day.close * 1.002).toFixed(2));
-        return {
-          date: day.date,
-          buy,
-          sell,
-          net,
-          vol: buy + sell,
-          avgBuy,
-          avgSell,
-          cumNet
-        };
-      });
-    });
+    return {
+      startDate,
+      endDate,
+      periodDays,
+      periodVol,
+      endClosePrice,
+      top15BuySum: instNet > 0 ? instNet : 0,
+      top15SellSum: instNet < 0 ? instNet : 0,
+      chipNet: instNet,
+      chipConcentrationPct,
+      chip20Pct,
+      turnoverPct,
+      periodReturnPct,
+      top15BuyRatio: 0,
+      top15SellRatio: 0,
+      isBullish: instNet >= 0,
+      absChipNet: Math.abs(instNet),
+      mysteryBrokers: [],
+      topBuyers: [],
+      topSellers: [],
+      dayTradeBrokers: [],
+      swingBrokers: [],
+      scalpBrokers: [],
+      retailBrokers: [],
+      foreignBrokers: [],
+      govBrokers: [],
+      allBrokers: [],
+      isRealBrokerReport: false,
+      brokerSourceLabel: '官方三大法人真實籌碼（此股尚未預載分點明細）'
+    };
   }
 
   const brokerStats = BROKER_LIST.map((broker, bIdx) => {
