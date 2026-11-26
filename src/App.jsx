@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { generateStockDataset, generateTaiexDataset } from './data/mockStocks';
 import {
   fetchOfficialStockData,
@@ -9,6 +9,7 @@ import {
   saveStockToLocalCache
 } from './services/liveStockService';
 import { isDeviceAuthenticated, logoutAndLockDevice } from './services/authService';
+import { useIsMobile } from './hooks/useIsMobile';
 import StockScreener from './components/StockScreener';
 import StockDetail from './components/StockDetail';
 import BrokerRadarView from './components/BrokerRadarView';
@@ -18,6 +19,8 @@ import AuthGateModal from './components/AuthGateModal';
 import PinChangeModal from './components/PinChangeModal';
 
 export default function App() {
+  const isMobile = useIsMobile(768);
+
   // 私人安全門禁驗證狀態（支援 30 天記住裝置免重複輸入）
   const [isAuthenticated, setIsAuthenticated] = useState(() => isDeviceAuthenticated());
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -41,8 +44,10 @@ export default function App() {
   const [taiexData, setTaiexData] = useState(() => generateTaiexDataset(stocks));
 
   const [activeView, setActiveView] = useState('screener'); // 'screener' | 'detail' | 'radar'
+  const [screenerScope, setScreenerScope] = useState('ALL'); // 'ALL' | 'PINNED' | 'LISTED' | 'OTC' | 'CACHED'
   const [selectedCode, setSelectedCode] = useState('2330');
   const [initialBrokerId, setInitialBrokerId] = useState('');
+
   // 自選股清單（持久化於 localStorage: mainbuy_watchlist_codes）
   const [pinnedCodes, setPinnedCodes] = useState(() => {
     try {
@@ -52,10 +57,39 @@ export default function App() {
       return ['2330', '2345', '2317', '2454'];
     }
   });
+
   const [toastMessage, setToastMessage] = useState('');
   const [isFormulaOpen, setIsFormulaOpen] = useState(false);
   const [isDataSourceOpen, setIsDataSourceOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState('dark'); // 'dark' | 'classic' | 'light'
+
+  // 預設深色黑底模式 (Dark Mode)
+  const [themeMode, setThemeMode] = useState(() => {
+    try {
+      return localStorage.getItem('mainbuy_theme_mode') || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  // 手機閱讀字級模式：'standard' (標準放大字級) | 'xlarge' (特大字模式)
+  const [fontScale, setFontScale] = useState(() => {
+    try {
+      return localStorage.getItem('mainbuy_font_scale') || 'standard';
+    } catch {
+      return 'standard';
+    }
+  });
+
+  // 手機專屬頂部搜尋展開與右上角「☰ 更多」選單狀態
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+  const [batchModalTrigger, setBatchModalTrigger] = useState(0);
+  const screenerCsvExportRef = useRef(null);
+
+  // 手機下拉更新 (Pull-to-Refresh) 狀態
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const pullTouchStartRef = useRef({ x: 0, y: 0, active: false });
 
   // 正式資料同步狀態
   const [syncState, setSyncState] = useState({
@@ -79,6 +113,31 @@ export default function App() {
       return { mode: 'live', finmindToken: '', refreshInterval: 5 };
     }
   });
+
+  const handleChangeThemeMode = nextTheme => {
+    setThemeMode(nextTheme);
+    try {
+      localStorage.setItem('mainbuy_theme_mode', nextTheme);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleChangeFontScale = nextScale => {
+    setFontScale(nextScale);
+    try {
+      localStorage.setItem('mainbuy_font_scale', nextScale);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleFontScale = () => {
+    const next = fontScale === 'xlarge' ? 'standard' : 'xlarge';
+    handleChangeFontScale(next);
+    setToastMessage(next === 'xlarge' ? '🔍 已切換為「特大字模式」' : '🔤 已切換為「標準字級」');
+    setTimeout(() => setToastMessage(''), 2000);
+  };
 
   const handleSaveDataSourceConfig = cfg => {
     setDataSourceConfig(cfg);
@@ -147,7 +206,6 @@ export default function App() {
         const existing = stocks.find(s => s.code === code);
         const currentName = existing?.name || '';
 
-        // 抓取前通知進度
         if (onProgress) {
           onProgress({
             current: i + 1,
@@ -164,7 +222,6 @@ export default function App() {
           successCount++;
         }
 
-        // 抓取完成通知進度
         if (onProgress) {
           onProgress({
             current: i + 1,
@@ -199,7 +256,6 @@ export default function App() {
       if (cloudSnapshot.taiex) {
         setTaiexData(cloudSnapshot.taiex);
       }
-      // 背景同步最新大盤加權指數與台指期
       fetchOfficialTaiexData(
         dataSourceConfig.finmindToken,
         cloudSnapshot.taiex || generateTaiexDataset(cloudSnapshot.stocks)
@@ -261,6 +317,106 @@ export default function App() {
     }));
   }, [stocks, selectedCode, syncSingleStock, dataSourceConfig.finmindToken, taiexData]);
 
+  const selectedStock =
+    selectedCode === 'TAIEX'
+      ? taiexData
+      : stocks.find(s => s.code === selectedCode) || stocks[0];
+
+  // 手機頁頂下拉更新 (Pull-to-Refresh) 執行函式
+  const executePullRefresh = useCallback(async () => {
+    if (isPullRefreshing) return;
+    setIsPullRefreshing(true);
+    try {
+      await syncAllStocksLive();
+      if (activeView === 'detail' && selectedCode && selectedCode !== 'TAIEX') {
+        const currentTarget = stocks.find(s => s.code === selectedCode);
+        await syncSingleStock(selectedCode, currentTarget || null, true);
+      }
+      setToastMessage('✅ 已更新至最新雲端股價、法人與分點資料');
+      setTimeout(() => setToastMessage(''), 2300);
+    } finally {
+      setIsPullRefreshing(false);
+      setPullDistance(0);
+    }
+  }, [isPullRefreshing, syncAllStocksLive, activeView, selectedCode, stocks, syncSingleStock]);
+
+  // 綁定手機頁頂下拉更新手勢（僅於頁面頂端垂直下拉時觸發，不干擾 K 線橫向滑動查價）
+  useEffect(() => {
+    if (!isMobile || !isAuthenticated) return undefined;
+
+    const hasModalOpen =
+      isMobileMoreOpen || isFormulaOpen || isDataSourceOpen || isPinModalOpen;
+    if (hasModalOpen) return undefined;
+
+    const onTouchStart = e => {
+      if (window.scrollY > 4 || isPullRefreshing) {
+        pullTouchStartRef.current.active = false;
+        return;
+      }
+      // 避免在彈窗或可捲動抽屜內誤觸發
+      if (e.target && e.target.closest && e.target.closest('.modal-backdrop, .mobile-bottom-sheet-backdrop, .kline-interactive-area')) {
+        pullTouchStartRef.current.active = false;
+        return;
+      }
+      const touch = e.touches[0];
+      if (!touch) return;
+      pullTouchStartRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        active: true
+      };
+    };
+
+    const onTouchMove = e => {
+      if (!pullTouchStartRef.current.active || isPullRefreshing) return;
+      if (window.scrollY > 4) {
+        pullTouchStartRef.current.active = false;
+        setPullDistance(0);
+        return;
+      }
+      const touch = e.touches[0];
+      if (!touch) return;
+      const dy = touch.clientY - pullTouchStartRef.current.y;
+      const dx = touch.clientX - pullTouchStartRef.current.x;
+
+      if (dy > 8 && Math.abs(dy) > Math.abs(dx) * 1.4) {
+        const damped = Math.min(105, Math.round(dy * 0.48));
+        setPullDistance(damped);
+      } else if (dy < 0) {
+        setPullDistance(0);
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (!pullTouchStartRef.current.active) return;
+      pullTouchStartRef.current.active = false;
+      if (pullDistance >= 64) {
+        executePullRefresh();
+      } else {
+        setPullDistance(0);
+      }
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [
+    isMobile,
+    isAuthenticated,
+    isMobileMoreOpen,
+    isFormulaOpen,
+    isDataSourceOpen,
+    isPinModalOpen,
+    isPullRefreshing,
+    pullDistance,
+    executePullRefresh
+  ]);
+
   const handleUnlockSuccess = () => {
     setIsAuthenticated(true);
     setToastMessage('🔓 通行驗證成功，歡迎進入 MainBuy 私人工作站');
@@ -269,6 +425,7 @@ export default function App() {
 
   const handleLockDevice = () => {
     logoutAndLockDevice();
+    setIsMobileMoreOpen(false);
     setIsAuthenticated(false);
     setToastMessage('🔒 系統已安全鎖定，需重新輸入 PIN 碼');
     setTimeout(() => setToastMessage(''), 2500);
@@ -291,17 +448,18 @@ export default function App() {
       setSelectedCode('TAIEX');
       setActiveView('detail');
       setCustomLookupCode('');
+      setIsMobileSearchOpen(false);
       syncSingleStock('TAIEX', taiexData, false);
       return;
     }
 
     const existing = stocks.find(s => s.code === q || s.name.includes(q));
     if (existing && existing.hasRealBrokerReport) {
-      // 已在選股池或快取中且具備分點資料 -> 0 秒切換，背景靜默更新
       setSelectedCode(existing.code);
       setInitialBrokerId('');
       setActiveView('detail');
       setCustomLookupCode('');
+      setIsMobileSearchOpen(false);
       syncSingleStock(existing.code, existing, true);
       return;
     }
@@ -316,25 +474,25 @@ export default function App() {
       setInitialBrokerId('');
       setActiveView('detail');
       setCustomLookupCode('');
+      setIsMobileSearchOpen(false);
     } else if (existing) {
       setSelectedCode(existing.code);
       setInitialBrokerId('');
       setActiveView('detail');
       setCustomLookupCode('');
+      setIsMobileSearchOpen(false);
     } else {
       alert(`查無台股代號「${q}」或公開 API 連線受限，請確認代號是否為 4 碼上市櫃股票（如 2317、3231、3017、8069）。`);
     }
   };
 
-  const selectedStock =
-    selectedCode === 'TAIEX'
-      ? taiexData
-      : stocks.find(s => s.code === selectedCode) || stocks[0];
-
   const handleSelectStock = code => {
     setSelectedCode(code);
     setInitialBrokerId('');
     setActiveView('detail');
+    if (isMobile) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     if (code === 'TAIEX') {
       if (dataSourceConfig.mode === 'live') {
         syncSingleStock('TAIEX', taiexData, false);
@@ -364,6 +522,9 @@ export default function App() {
     setSelectedCode(code);
     setInitialBrokerId(brokerId || '');
     setActiveView('detail');
+    if (isMobile) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   // 切換加入/移除自選股，並寫入 localStorage 與彈出 Toast
@@ -424,6 +585,65 @@ export default function App() {
       return next;
     });
     setCustomLookupCode('');
+    setIsMobileSearchOpen(false);
+  };
+
+  // 全域匯出 CSV（支援從手機右上角「☰ 更多」在任何頁籤直接匯出）
+  const handleGlobalExportCsv = () => {
+    setIsMobileMoreOpen(false);
+    if (screenerCsvExportRef.current) {
+      screenerCsvExportRef.current();
+      return;
+    }
+    const targetList =
+      screenerScope === 'PINNED'
+        ? stocks.filter(s => pinnedCodes.includes(s.code))
+        : stocks;
+    const headers = [
+      '代號',
+      '名稱',
+      '成交價',
+      '漲跌幅(%)',
+      '成交量',
+      '產業分類',
+      '主力動能',
+      '主1%',
+      '主5%',
+      '布林帶寬%',
+      '月線斜率%',
+      '上軌斜率%',
+      '下軌斜率%',
+      '股淨比',
+      '殖利率%'
+    ];
+    const rows = targetList.map(s => [
+      s.code,
+      s.name,
+      s.price,
+      s.changePct,
+      s.volume,
+      s.industry || '',
+      s.momentum?.main?.stageLabel || '',
+      s.main1 ?? '',
+      s.main5 ?? '',
+      s.bandWidth ?? '',
+      s.monthSlope ?? '',
+      s.upperSlope ?? '',
+      s.lowerSlope ?? '',
+      s.pb ?? '',
+      s.dividendYield ?? ''
+    ]);
+    const csvContent =
+      '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `MainBuy主力選股清單_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setToastMessage(`📥 已匯出 ${targetList.length} 檔個股 CSV 報表`);
+    setTimeout(() => setToastMessage(''), 2200);
   };
 
   const currentSurfaceTheme =
@@ -435,156 +655,270 @@ export default function App() {
           ? 'theme-dark'
           : 'theme-light';
 
+  const shortSyncDate = syncState.latestDate ? syncState.latestDate.slice(5) : '';
+
   return (
-    <div className={`app-shell ${currentSurfaceTheme}`}>
+    <div
+      className={`app-shell ${currentSurfaceTheme} ${isMobile ? 'is-mobile-shell' : ''} ${
+        isMobile && fontScale === 'xlarge' ? 'mobile-font-xl' : ''
+      }`}
+    >
       {!isAuthenticated ? (
         <AuthGateModal onUnlockSuccess={handleUnlockSuccess} />
       ) : (
         <>
-          {/* 全域頂部導覽列 */}
-          <header className="global-navbar" id="global-navbar">
+          {/* 手機下拉更新 (Pull-to-Refresh) 動態指示條 */}
+          {isMobile && (pullDistance > 10 || isPullRefreshing) && (
             <div
-              className="brand-area"
-              onClick={() => setActiveView('screener')}
-              style={{ cursor: 'pointer' }}
-              title="點擊返回主力選股首頁"
-              id="brand-home-link"
+              className={`mobile-ptr-indicator ${
+                isPullRefreshing || pullDistance >= 64 ? 'ptr-ready' : ''
+              }`}
+              style={{
+                height: `${isPullRefreshing ? 48 : pullDistance}px`
+              }}
+              id="mobile-ptr-indicator"
             >
-              <div className="brand-logo">M</div>
-              <div>
-                <h1 className="brand-title">MainBuy 主力雷達</h1>
-                <span className="brand-subtitle">
-                  {syncState.status === 'syncing'
-                    ? `🔄 正在同步證交所/櫃買/券商分點正式資料 (${syncState.syncedCount}/${syncState.totalCount})...`
-                    : syncState.status === 'synced'
-                      ? `🟢 正式資料連線中 (${syncState.brokerSource || '證交所/FinMind'}｜最新日: ${syncState.latestDate})`
-                      : '台股主力買賣・投信轉折・關鍵分點動能選股系統'}
-                </span>
+              <span className="ptr-pill">
+                {isPullRefreshing
+                  ? '🔄 正在重新抓取最新雲端股價、法人與分點...'
+                  : pullDistance >= 64
+                    ? '↑ 放開立即更新雲端資料'
+                    : '↓ 下拉更新雲端股價與分點'}
+              </span>
+            </div>
+          )}
+
+          {/* 導覽列：手機版精簡頂部列 vs 電腦版完整頂部列（電腦版 100% 維持原樣） */}
+          {isMobile ? (
+            <header className="mobile-top-appbar" id="mobile-top-appbar">
+              <div className="mobile-appbar-main">
+                <div
+                  className="mobile-brand-left"
+                  onClick={() => {
+                    setScreenerScope('ALL');
+                    setActiveView('screener');
+                  }}
+                >
+                  <div className="brand-logo">M</div>
+                  <div className="mobile-brand-text">
+                    <span className="mobile-brand-title">MainBuy 主力雷達</span>
+                    <span className="mobile-brand-status">
+                      {syncState.status === 'syncing' || isPullRefreshing
+                        ? '🔄 同步官方資料中...'
+                        : shortSyncDate
+                          ? `🟢 官方連線・最新 ${shortSyncDate}`
+                          : '🟢 台股主力・分點動能'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mobile-appbar-actions">
+                  <button
+                    type="button"
+                    className={`mobile-top-btn ${isMobileSearchOpen ? 'active' : ''}`}
+                    onClick={() => setIsMobileSearchOpen(p => !p)}
+                    id="btn-mobile-search-toggle"
+                    aria-label="查詢任意台股"
+                  >
+                    🔍 查股
+                  </button>
+                  <button
+                    type="button"
+                    className={`mobile-top-btn font-toggle-btn ${
+                      fontScale === 'xlarge' ? 'active' : ''
+                    }`}
+                    onClick={handleToggleFontScale}
+                    id="btn-mobile-font-toggle"
+                    title="一鍵切換標準字級與特大字模式"
+                  >
+                    {fontScale === 'xlarge' ? '特大字' : '標準字'}
+                  </button>
+                  <button
+                    type="button"
+                    className="mobile-top-btn more-menu-btn"
+                    onClick={() => setIsMobileMoreOpen(true)}
+                    id="btn-mobile-more-menu"
+                    aria-label="更多功能選單"
+                  >
+                    ☰ 更多
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {/* 主視圖切換頁籤：1.主力選股 / 2.個股K線 / 3.分點反查 */}
-            <nav className="main-view-tabs" aria-label="主功能切換">
-              <button
-                className={`nav-tab-btn ${activeView === 'screener' ? 'active' : ''}`}
+              {isMobileSearchOpen && (
+                <form className="mobile-quick-lookup-bar" onSubmit={handleLookupAnyStock}>
+                  <input
+                    type="text"
+                    className="mobile-lookup-input"
+                    placeholder="輸入 4 碼台股代號或股名 (如 2330、2454)..."
+                    value={customLookupCode}
+                    onChange={e => setCustomLookupCode(e.target.value)}
+                    autoFocus
+                    id="input-mobile-stock-lookup"
+                  />
+                  <button
+                    type="submit"
+                    className="btn-mobile-lookup-go"
+                    disabled={isLookingUpSingle}
+                  >
+                    {isLookingUpSingle ? '抓取中' : '看K線'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-mobile-lookup-star"
+                    onClick={handleAddCustomWatchlist}
+                    disabled={isLookingUpSingle || !customLookupCode.trim()}
+                  >
+                    ⭐加自選
+                  </button>
+                </form>
+              )}
+            </header>
+          ) : (
+            <header className="global-navbar" id="global-navbar">
+              <div
+                className="brand-area"
                 onClick={() => setActiveView('screener')}
-                id="nav-btn-screener"
+                style={{ cursor: 'pointer' }}
+                title="點擊返回主力選股首頁"
+                id="brand-home-link"
               >
-                <span className="tab-step">1</span>
-                <span>主力選股 (動能轉折快篩)</span>
-              </button>
-              <button
-                className={`nav-tab-btn ${activeView === 'detail' ? 'active' : ''}`}
-                onClick={() => setActiveView('detail')}
-                id="nav-btn-detail"
-              >
-                <span className="tab-step">2</span>
-                <span>
-                  {selectedStock.code === 'TAIEX'
-                    ? `大盤K線：加權指數 (${selectedStock.price?.toLocaleString()})`
-                    : `個股K線：${selectedStock.code} ${selectedStock.name}`}
-                </span>
-              </button>
-              <button
-                className={`nav-tab-btn ${activeView === 'radar' ? 'active' : ''}`}
-                onClick={() => setActiveView('radar')}
-                id="nav-btn-radar"
-              >
-                <span className="tab-step">3</span>
-                <span>分點反查 & 隔日沖雷達</span>
-              </button>
-              <button
-                className="nav-tab-btn formula-btn"
-                onClick={() => setIsFormulaOpen(true)}
-                id="nav-btn-formula"
-              >
-                <span>指標與公式說明</span>
-              </button>
-            </nav>
+                <div className="brand-logo">M</div>
+                <div>
+                  <h1 className="brand-title">MainBuy 主力雷達</h1>
+                  <span className="brand-subtitle">
+                    {syncState.status === 'syncing'
+                      ? `🔄 正在同步證交所/櫃買/券商分點正式資料 (${syncState.syncedCount}/${syncState.totalCount})...`
+                      : syncState.status === 'synced'
+                        ? `🟢 正式資料連線中 (${syncState.brokerSource || '證交所/FinMind'}｜最新日: ${syncState.latestDate})`
+                        : '台股主力買賣・投信轉折・關鍵分點動能選股系統'}
+                  </span>
+                </div>
+              </div>
 
-            {/* 動態查詢任意台股代號（自動快取秒開） + 同步正式資料按鈕 + 外觀模式 */}
-            <div className="navbar-right-controls">
-              <form className="live-lookup-form" onSubmit={handleLookupAnyStock}>
-                <input
-                  type="text"
-                  className="live-lookup-input"
-                  placeholder="搜尋台股代號/名稱(自動快取)..."
-                  value={customLookupCode}
-                  onChange={e => setCustomLookupCode(e.target.value)}
-                  id="input-live-stock-lookup"
-                />
+              {/* 主視圖切換頁籤：1.主力選股 / 2.個股K線 / 3.分點反查 */}
+              <nav className="main-view-tabs" aria-label="主功能切換">
                 <button
-                  type="submit"
-                  className="btn-live-lookup"
-                  disabled={isLookingUpSingle}
-                  id="btn-submit-live-lookup"
-                  title="查詢個股即時走勢與主力分點報表"
+                  className={`nav-tab-btn ${activeView === 'screener' ? 'active' : ''}`}
+                  onClick={() => setActiveView('screener')}
+                  id="nav-btn-screener"
                 >
-                  {isLookingUpSingle ? '抓取中...' : '🔍 查股&快取'}
+                  <span className="tab-step">1</span>
+                  <span>主力選股 (動能轉折快篩)</span>
                 </button>
                 <button
-                  type="button"
-                  className="btn-live-add-watchlist"
-                  onClick={handleAddCustomWatchlist}
-                  disabled={isLookingUpSingle || !customLookupCode.trim()}
-                  id="btn-add-custom-watchlist"
-                  title="輸入代號直接加入我的自選股並自動快取"
+                  className={`nav-tab-btn ${activeView === 'detail' ? 'active' : ''}`}
+                  onClick={() => setActiveView('detail')}
+                  id="nav-btn-detail"
                 >
-                  ⭐ 加自選
+                  <span className="tab-step">2</span>
+                  <span>
+                    {selectedStock.code === 'TAIEX'
+                      ? `大盤K線：加權指數 (${selectedStock.price?.toLocaleString()})`
+                      : `個股K線：${selectedStock.code} ${selectedStock.name}`}
+                  </span>
                 </button>
-              </form>
+                <button
+                  className={`nav-tab-btn ${activeView === 'radar' ? 'active' : ''}`}
+                  onClick={() => setActiveView('radar')}
+                  id="nav-btn-radar"
+                >
+                  <span className="tab-step">3</span>
+                  <span>分點反查 & 隔日沖雷達</span>
+                </button>
+                <button
+                  className="nav-tab-btn formula-btn"
+                  onClick={() => setIsFormulaOpen(true)}
+                  id="nav-btn-formula"
+                >
+                  <span>指標與公式說明</span>
+                </button>
+              </nav>
 
-              <button
-                className="quick-stock-btn live-sync-btn"
-                onClick={syncAllStocksLive}
-                disabled={syncState.status === 'syncing'}
-                title="立即從證交所/櫃買中心/券商分點網站與 FinMind 同步最新正式資料"
-                id="btn-sync-live-all"
-              >
-                {syncState.status === 'syncing'
-                  ? `同步中(${syncState.syncedCount}/${syncState.totalCount})`
-                  : '🔄 同步最新正式資料'}
-              </button>
+              {/* 動態查詢任意台股代號（自動快取秒開） + 同步正式資料按鈕 + 外觀模式 */}
+              <div className="navbar-right-controls">
+                <form className="live-lookup-form" onSubmit={handleLookupAnyStock}>
+                  <input
+                    type="text"
+                    className="live-lookup-input"
+                    placeholder="搜尋台股代號/名稱(自動快取)..."
+                    value={customLookupCode}
+                    onChange={e => setCustomLookupCode(e.target.value)}
+                    id="input-live-stock-lookup"
+                  />
+                  <button
+                    type="submit"
+                    className="btn-live-lookup"
+                    disabled={isLookingUpSingle}
+                    id="btn-submit-live-lookup"
+                    title="查詢個股即時走勢與主力分點報表"
+                  >
+                    {isLookingUpSingle ? '抓取中...' : '🔍 查股&快取'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-live-add-watchlist"
+                    onClick={handleAddCustomWatchlist}
+                    disabled={isLookingUpSingle || !customLookupCode.trim()}
+                    id="btn-add-custom-watchlist"
+                    title="輸入代號直接加入我的自選股並自動快取"
+                  >
+                    ⭐ 加自選
+                  </button>
+                </form>
 
-              <select
-                className="theme-mode-select"
-                value={themeMode}
-                onChange={e => setThemeMode(e.target.value)}
-                id="select-theme-mode"
-                title="切換配色模式"
-              >
-                <option value="dark">全深色旗艦模式 (推薦)</option>
-                <option value="classic">雙模配色 (選股黑底 / K線白底)</option>
-                <option value="light">全淺色分析模式</option>
-              </select>
+                <button
+                  className="quick-stock-btn live-sync-btn"
+                  onClick={syncAllStocksLive}
+                  disabled={syncState.status === 'syncing'}
+                  title="立即從證交所/櫃買中心/券商分點網站與 FinMind 同步最新正式資料"
+                  id="btn-sync-live-all"
+                >
+                  {syncState.status === 'syncing'
+                    ? `同步中(${syncState.syncedCount}/${syncState.totalCount})`
+                    : '🔄 同步最新正式資料'}
+                </button>
 
-              <button
-                className="quick-stock-btn"
-                onClick={() => setIsDataSourceOpen(true)}
-                title="資料來源與本機快取管理"
-                id="btn-open-datasource"
-              >
-                ⚙️ 資料源
-              </button>
+                <select
+                  className="theme-mode-select"
+                  value={themeMode}
+                  onChange={e => handleChangeThemeMode(e.target.value)}
+                  id="select-theme-mode"
+                  title="切換配色模式"
+                >
+                  <option value="dark">全深色旗艦模式 (推薦)</option>
+                  <option value="classic">雙模配色 (選股黑底 / K線白底)</option>
+                  <option value="light">全淺色分析模式</option>
+                </select>
 
-              <button
-                className="quick-stock-btn btn-pin-settings"
-                onClick={() => setIsPinModalOpen(true)}
-                title="修改私人通行 PIN 碼"
-                id="btn-open-pin-modal"
-              >
-                🔑 改 PIN
-              </button>
-              <button
-                className="quick-stock-btn btn-lock-system"
-                onClick={handleLockDevice}
-                title="安全登出並鎖定本機裝置"
-                id="btn-lock-device"
-              >
-                🔒 鎖定
-              </button>
-            </div>
-          </header>
+                <button
+                  className="quick-stock-btn"
+                  onClick={() => setIsDataSourceOpen(true)}
+                  title="資料來源與本機快取管理"
+                  id="btn-open-datasource"
+                >
+                  ⚙️ 資料源
+                </button>
+
+                <button
+                  className="quick-stock-btn btn-pin-settings"
+                  onClick={() => setIsPinModalOpen(true)}
+                  title="修改私人通行 PIN 碼"
+                  id="btn-open-pin-modal"
+                >
+                  🔑 改 PIN
+                </button>
+                <button
+                  className="quick-stock-btn btn-lock-system"
+                  onClick={handleLockDevice}
+                  title="安全登出並鎖定本機裝置"
+                  id="btn-lock-device"
+                >
+                  🔒 鎖定
+                </button>
+              </div>
+            </header>
+          )}
 
           {/* 主要內容區 */}
           <main className="main-workspace">
@@ -597,6 +931,12 @@ export default function App() {
                 onSelectStock={handleSelectStock}
                 onBatchAddStocks={handleBatchAddStocks}
                 onOpenFormulaModal={() => setIsFormulaOpen(true)}
+                externalMarketScope={screenerScope}
+                onChangeExternalScope={setScreenerScope}
+                batchModalTrigger={batchModalTrigger}
+                registerCsvExport={fn => {
+                  screenerCsvExportRef.current = fn;
+                }}
               />
             ) : activeView === 'radar' ? (
               <BrokerRadarView
@@ -627,6 +967,229 @@ export default function App() {
               </p>
             </div>
           </footer>
+
+          {/* 手機專屬：底部固定 4 大導覽列 (Bottom Tab Bar，含 iPhone 底部安全區適配) */}
+          {isMobile && (
+            <nav className="mobile-bottom-tabbar" id="mobile-bottom-tabbar" aria-label="手機主導覽列">
+              <button
+                type="button"
+                className={`mobile-tab-item ${
+                  activeView === 'screener' && screenerScope !== 'PINNED' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setScreenerScope('ALL');
+                  setActiveView('screener');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                id="mobile-tab-screener"
+              >
+                <span className="mobile-tab-icon">📊</span>
+                <span className="mobile-tab-label">選股</span>
+              </button>
+
+              <button
+                type="button"
+                className={`mobile-tab-item ${
+                  activeView === 'screener' && screenerScope === 'PINNED' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  setScreenerScope('PINNED');
+                  setActiveView('screener');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                id="mobile-tab-watchlist"
+              >
+                <span className="mobile-tab-icon">⭐</span>
+                <span className="mobile-tab-label">自選 ({pinnedCodes.length})</span>
+              </button>
+
+              <button
+                type="button"
+                className={`mobile-tab-item ${activeView === 'detail' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveView('detail');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                id="mobile-tab-kline"
+              >
+                <span className="mobile-tab-icon">📈</span>
+                <span className="mobile-tab-label">K線</span>
+              </button>
+
+              <button
+                type="button"
+                className={`mobile-tab-item ${activeView === 'radar' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveView('radar');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                id="mobile-tab-broker"
+              >
+                <span className="mobile-tab-icon">🎯</span>
+                <span className="mobile-tab-label">分點</span>
+              </button>
+            </nav>
+          )}
+
+          {/* 手機專屬：右上角「☰ 更多」底部彈出功能選單 */}
+          {isMobile && isMobileMoreOpen && (
+            <div
+              className="mobile-bottom-sheet-backdrop"
+              onClick={() => setIsMobileMoreOpen(false)}
+              id="mobile-more-menu-backdrop"
+            >
+              <div
+                className="mobile-bottom-sheet"
+                onClick={e => e.stopPropagation()}
+                id="mobile-more-menu-sheet"
+              >
+                <div className="sheet-drag-handle" />
+                <div className="sheet-header-row">
+                  <h3 className="sheet-title">☰ 更多功能與個人設定</h3>
+                  <button
+                    type="button"
+                    className="btn-sheet-close"
+                    onClick={() => setIsMobileMoreOpen(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="sheet-body-scroll">
+                  {/* 字級一鍵切換 */}
+                  <div className="more-setting-block">
+                    <div className="more-setting-label">🔤 手機閱讀字級模式</div>
+                    <div className="more-segmented-row">
+                      <button
+                        type="button"
+                        className={`more-seg-btn ${fontScale === 'standard' ? 'active' : ''}`}
+                        onClick={() => handleChangeFontScale('standard')}
+                      >
+                        標準字級
+                      </button>
+                      <button
+                        type="button"
+                        className={`more-seg-btn ${fontScale === 'xlarge' ? 'active' : ''}`}
+                        onClick={() => handleChangeFontScale('xlarge')}
+                      >
+                        特大字模式
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 配色模式切換 */}
+                  <div className="more-setting-block">
+                    <div className="more-setting-label">🎨 畫面配色主題</div>
+                    <div className="more-segmented-row">
+                      <button
+                        type="button"
+                        className={`more-seg-btn ${themeMode === 'dark' ? 'active' : ''}`}
+                        onClick={() => handleChangeThemeMode('dark')}
+                      >
+                        🌙 深色黑底
+                      </button>
+                      <button
+                        type="button"
+                        className={`more-seg-btn ${themeMode === 'classic' ? 'active' : ''}`}
+                        onClick={() => handleChangeThemeMode('classic')}
+                      >
+                        🌓 雙模配色
+                      </button>
+                      <button
+                        type="button"
+                        className={`more-seg-btn ${themeMode === 'light' ? 'active' : ''}`}
+                        onClick={() => handleChangeThemeMode('light')}
+                      >
+                        ☀️ 淺色模式
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 次要操作清單 */}
+                  <div className="more-actions-grid">
+                    <button
+                      type="button"
+                      className="more-action-btn"
+                      onClick={() => {
+                        setIsMobileMoreOpen(false);
+                        executePullRefresh();
+                      }}
+                    >
+                      <span>🔄 同步最新雲端資料</span>
+                      <small>{syncState.latestDate || '立即更新'}</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="more-action-btn"
+                      onClick={() => {
+                        setIsMobileMoreOpen(false);
+                        setActiveView('screener');
+                        setBatchModalTrigger(c => c + 1);
+                      }}
+                    >
+                      <span>➕ 批次加入 / 族群快選</span>
+                      <small>多檔匯入</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="more-action-btn"
+                      onClick={handleGlobalExportCsv}
+                    >
+                      <span>📥 匯出 CSV 選股清單</span>
+                      <small>下載報表</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="more-action-btn"
+                      onClick={() => {
+                        setIsMobileMoreOpen(false);
+                        setIsFormulaOpen(true);
+                      }}
+                    >
+                      <span>📘 指標與公式說明</span>
+                      <small>主1/帶寬/斜率</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="more-action-btn"
+                      onClick={() => {
+                        setIsMobileMoreOpen(false);
+                        setIsDataSourceOpen(true);
+                      }}
+                    >
+                      <span>⚙️ 資料源與快取設定</span>
+                      <small>API / 快取</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="more-action-btn"
+                      onClick={() => {
+                        setIsMobileMoreOpen(false);
+                        setIsPinModalOpen(true);
+                      }}
+                    >
+                      <span>🔑 修改私人 PIN 碼</span>
+                      <small>門禁密碼</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="more-action-btn danger-action"
+                      onClick={handleLockDevice}
+                    >
+                      <span>🔒 安全鎖定本機裝置</span>
+                      <small>登出保護</small>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 

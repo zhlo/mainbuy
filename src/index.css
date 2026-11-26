@@ -4080,3 +4080,1922 @@ body {
 
 
 
+
+/* ==========================================================================
+   📱 手機專屬版面與 PWA 獨立 App 體驗樣式（僅作用於 <=768px / .is-mobile-shell，電腦版 100% 不影響）
+   ========================================================================== */
+
+.is-mobile-shell {
+  --m-font-hero: 19.5px;
+  --m-font-core: 15.5px;
+  --m-font-sub: 14px;
+  --m-font-label: 13.5px;
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 特大字模式一鍵放大 */
+.is-mobile-shell.mobile-font-xl {
+  --m-font-hero: 23px;
+  --m-font-core: 18px;
+  --m-font-sub: 16px;
+  --m-font-label: 15px;
+}
+
+/* 1. 手機版 PIN 碼鎖定頁與大型九宮格數字鍵盤 */
+@media (max-width: 768px) {
+  .auth-gate-overlay {
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 14px calc(20px + env(safe-area-inset-bottom, 0px));
+    align-items: center;
+  }
+
+  .auth-gate-mobile-card {
+    padding: 24px 20px;
+    border-radius: 20px;
+    max-width: 400px;
+  }
+
+  .auth-gate-mobile-card .auth-gate-header {
+    margin-bottom: 14px;
+  }
+
+  .auth-gate-mobile-card .auth-shield-icon {
+    font-size: 34px;
+    margin-bottom: 4px;
+  }
+
+  .auth-gate-mobile-card .auth-gate-title {
+    font-size: 22px;
+  }
+
+  .auth-gate-mobile-card .auth-input-label {
+    font-size: 14px;
+  }
+
+  .auth-gate-mobile-card .btn-toggle-eye {
+    font-size: 13.5px;
+    padding: 4px 8px;
+  }
+
+  .auth-gate-mobile-card .auth-remember-checkbox {
+    font-size: 14px;
+  }
+
+  .auth-gate-mobile-card .btn-auth-unlock {
+    height: 52px;
+    font-size: 17px;
+    border-radius: 12px;
+  }
+
+  .auth-gate-mobile-card .btn-toggle-forgot {
+    font-size: 14px;
+    padding: 6px 10px;
+  }
+}
+
+.mobile-pin-display-box {
+  width: 100%;
+  height: 50px;
+  border-radius: 10px;
+  background: #0b1120;
+  border: 1.5px solid #334155;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+}
+
+.mobile-pin-display-box.has-error {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
+}
+
+.mobile-pin-placeholder {
+  font-size: 14.5px;
+  color: #64748b;
+}
+
+.mobile-pin-digits {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: #f8fafc;
+}
+
+.mobile-pin-bullets {
+  font-size: 22px;
+  letter-spacing: 0.35em;
+  color: #38bdf8;
+}
+
+.mobile-numpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 4px 0;
+}
+
+.mobile-numpad-btn {
+  height: 58px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: #172033;
+  color: #f8fafc;
+  font-family: var(--font-mono);
+  font-size: 23px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s ease, transform 0.08s ease;
+}
+
+.mobile-numpad-btn:active {
+  background: #2563eb;
+  border-color: #60a5fa;
+  transform: scale(0.96);
+}
+
+.mobile-numpad-btn.numpad-fn-btn {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 700;
+  background: #111827;
+  color: #cbd5e1;
+}
+
+/* 2. 下拉更新 (Pull-to-Refresh) 動態指示條 */
+.mobile-ptr-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #0b0e14;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+  transition: height 0.15s ease-out;
+}
+
+.ptr-pill {
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  color: #94a3b8;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.mobile-ptr-indicator.ptr-ready .ptr-pill {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.55);
+}
+
+/* 3. 手機頂部精簡 App Bar (含瀏海安全區) */
+.mobile-top-appbar {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+  background: rgba(13, 17, 23, 0.96);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid #262e3d;
+}
+
+.theme-light .mobile-top-appbar {
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom-color: #cbd5e1;
+}
+
+.mobile-appbar-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mobile-brand-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.mobile-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mobile-brand-title {
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.mobile-brand-status {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-appbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mobile-top-btn {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mobile-top-btn.active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.mobile-top-btn.font-toggle-btn.active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.mobile-quick-lookup-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mobile-lookup-input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.btn-mobile-lookup-go,
+.btn-mobile-lookup-star {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-mobile-lookup-go {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.btn-mobile-lookup-star {
+  background: #f59e0b;
+  color: #0f172a;
+}
+
+/* 4. 底部固定 4 大導覽列 (Bottom Tab Bar，支援 iOS Safe Area) */
+.mobile-bottom-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 950;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: rgba(13, 17, 23, 0.98);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid #2b3445;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.theme-light .mobile-bottom-tabbar {
+  background: rgba(255, 255, 255, 0.98);
+  border-top-color: #cbd5e1;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.mobile-tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 4px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-tab-icon {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.mobile-tab-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.mobile-tab-item.active {
+  color: #ff4d4f;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.is-mobile-shell .floating-toast-notification {
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  max-width: 92vw;
+  font-size: 14.5px;
+  text-align: center;
+}
+
+.is-mobile-shell .app-global-footer {
+  margin-top: 16px;
+  padding: 14px 14px 20px;
+}
+
+.is-mobile-shell .footer-disclaimer-text {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* 5. 通用手機底部彈出抽屜 (Bottom Sheet：用於「⚡ 進階篩選」與「☰ 更多」) */
+.mobile-bottom-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.mobile-bottom-sheet {
+  width: 100%;
+  max-height: 86vh;
+  background: #141923;
+  color: #f8fafc;
+  border-top: 1px solid #334155;
+  border-radius: 20px 20px 0 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheetSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theme-light .mobile-bottom-sheet {
+  background: #ffffff;
+  color: #0f172a;
+  border-top-color: #cbd5e1;
+}
+
+@keyframes sheetSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.sheet-drag-handle {
+  width: 42px;
+  height: 5px;
+  border-radius: 999px;
+  background: #475569;
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+
+.sheet-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.sheet-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.btn-sheet-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.sheet-body-scroll {
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.more-setting-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.more-setting-label {
+  font-size: var(--m-font-sub);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.more-segmented-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+  gap: 8px;
+}
+
+.more-seg-btn {
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-sub);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.more-seg-btn.active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.more-actions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.more-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-core);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.more-action-btn small {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.more-action-btn.danger-action {
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #f87171;
+}
+
+/* 6. 手機版「主力選股頁」：快篩膠囊、大字個股卡片、精簡表格與進階篩選抽屜 */
+.mobile-screener-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 14px;
+}
+
+.mobile-market-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: var(--m-font-sub);
+  cursor: pointer;
+}
+
+.mm-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.mm-strip-tag {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.mm-strip-left strong {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 800;
+}
+
+.mm-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--m-font-label);
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.mm-strip-arrow {
+  font-size: 18px;
+  color: var(--text-muted);
+}
+
+.mobile-screener-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-filter-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 28px 0 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-sub);
+}
+
+.mobile-clear-q {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 4px;
+}
+
+.mobile-view-toggle-btn,
+.mobile-adv-filter-btn {
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mobile-adv-filter-btn.has-active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.mobile-capsule-scroll-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 2px 2px 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.mobile-capsule-scroll-row::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-mom-capsule {
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mobile-mom-capsule.active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.mobile-mom-capsule.bear.active {
+  background: #15803d;
+  border-color: #4ade80;
+  color: #ffffff;
+}
+
+.mobile-result-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px;
+  font-size: var(--m-font-label);
+  color: var(--text-secondary);
+}
+
+.m-result-count strong {
+  color: #38bdf8;
+  font-size: var(--m-font-core);
+}
+
+.btn-inline-reset {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #60a5fa;
+  background: transparent;
+  color: #60a5fa;
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.m-quick-sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.m-sort-select {
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-label);
+  font-weight: 600;
+}
+
+.m-sort-dir-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* 大字個股卡片清單 */
+.mobile-stock-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-stock-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 13px 13px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+
+.mobile-stock-card.is-pinned-card {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.06) 0%, var(--bg-secondary) 45%);
+}
+
+.mobile-stock-card:active {
+  border-color: #38bdf8;
+}
+
+.msc-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.msc-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.msc-star-btn {
+  border: none;
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.msc-star-btn.active {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.18);
+}
+
+.msc-name-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.msc-name {
+  font-size: var(--m-font-hero);
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.msc-code {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 700;
+  color: var(--code-link);
+}
+
+.msc-sub-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+.msc-industry {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+}
+
+.msc-vol-tag {
+  font-size: var(--m-font-sub);
+  color: var(--text-secondary);
+}
+
+.msc-vol-tag strong {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.msc-price-block {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.msc-price {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-hero);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.msc-chg-badge {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 700;
+}
+
+.msc-momentum-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+}
+
+.msc-stage-pill {
+  font-size: var(--m-font-sub) !important;
+  padding: 4px 10px !important;
+  font-weight: 700 !important;
+}
+
+.msc-spark-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msc-spark-caption {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+}
+
+.msc-spark-wrap .sparkbar-10d {
+  height: 22px;
+  width: 68px;
+}
+
+.msc-core-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  gap: 8px;
+}
+
+.msc-metric-box {
+  background: var(--bg-primary);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.msc-metric-box.msc-slope-box {
+  grid-column: 1 / -1;
+}
+
+.msc-m-label {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.msc-m-val {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 800;
+}
+
+.msc-slopes-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.msc-sep {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.msc-expanded-fundamentals {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  border: 1px dashed var(--border-color);
+}
+
+.msc-fund-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--m-font-label);
+  color: var(--text-secondary);
+}
+
+.msc-fund-item strong {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-sub);
+  color: var(--text-primary);
+}
+
+.msc-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.msc-expand-btn {
+  border: none;
+  background: transparent;
+  color: #60a5fa;
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.msc-enter-kline-hint {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* 手機精簡表格模式 */
+.mobile-compact-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-compact-table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.mobile-compact-table th {
+  background: #1f2532;
+  color: #e2e8f0;
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  padding: 10px 9px;
+  border-bottom: 1px solid #334155;
+  text-align: right;
+}
+
+.mobile-compact-table th.mct-sticky,
+.mobile-compact-table td.mct-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
+  text-align: left;
+  border-right: 1px solid var(--border-color);
+}
+
+.mobile-compact-table th.mct-sticky {
+  background: #1f2532;
+}
+
+.mobile-compact-table td {
+  padding: 10px 9px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: var(--m-font-core);
+}
+
+.mct-stock-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mct-star {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 18px;
+  padding: 2px;
+}
+
+.mct-star.active {
+  color: #fbbf24;
+}
+
+.mct-name {
+  font-size: var(--m-font-core);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.mct-code {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-label);
+  color: var(--code-link);
+}
+
+.mct-num {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-align: right;
+}
+
+.mct-mom-text {
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+/* 手機分頁與篩選抽屜內容 */
+.mobile-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+}
+
+.m-page-btn {
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-sub);
+  font-weight: 700;
+}
+
+.m-page-btn:disabled {
+  opacity: 0.4;
+}
+
+.m-page-info {
+  font-size: var(--m-font-sub);
+  color: var(--text-secondary);
+}
+
+.mobile-empty-state {
+  padding: 36px 16px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  font-size: var(--m-font-core);
+}
+
+.btn-reset-empty {
+  margin-top: 12px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: var(--m-font-sub);
+  font-weight: 700;
+}
+
+.sheet-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet-group-title {
+  font-size: var(--m-font-sub);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.sheet-pills-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sheet-pill-btn {
+  padding: 8px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.sheet-pill-btn.active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.sheet-strategy-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.sheet-subtab-btn {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.sheet-subtab-btn.active {
+  background: #2563eb;
+  border-color: #60a5fa;
+  color: #ffffff;
+}
+
+.sheet-pills-col {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.sheet-strategy-check-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--m-font-label);
+  font-weight: 600;
+  text-align: left;
+}
+
+.sheet-strategy-check-btn.selected {
+  background: rgba(220, 38, 38, 0.2);
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.sheet-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet-saved-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: var(--m-font-sub);
+  font-weight: 700;
+}
+
+.sheet-save-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sheet-save-row input {
+  flex: 1;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--m-font-label);
+}
+
+.sheet-save-row button {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.sheet-Threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.sheet-input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: var(--m-font-label);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.sheet-input-field input {
+  height: 42px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--m-font-core);
+  font-family: var(--font-mono);
+}
+
+.sheet-sticky-footer {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background: inherit;
+  flex-shrink: 0;
+}
+
+.btn-sheet-reset,
+.btn-sheet-apply {
+  height: 46px;
+  border-radius: 12px;
+  font-size: var(--m-font-core);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-sheet-reset {
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.btn-sheet-apply {
+  border: none;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+/* 7. 手機版「個股 K 線與分點頁」與「分點雷達頁」 */
+.mobile-detail-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 18px;
+}
+
+.mobile-detail-top-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.md-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.md-back-btn,
+.md-star-btn {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.md-star-btn.active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
+.md-stock-select {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--m-font-sub);
+  font-weight: 700;
+}
+
+.md-stepper-group {
+  display: flex;
+  gap: 3px;
+}
+
+.md-step-btn {
+  width: 32px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.md-quote-hero-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.md-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.md-stock-name {
+  font-size: var(--m-font-hero);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.md-stock-code {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 700;
+  color: var(--code-link);
+}
+
+.md-industry-tag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+}
+
+.md-quote-right {
+  text-align: right;
+}
+
+.md-hero-price {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--m-font-hero);
+  font-weight: 800;
+}
+
+.md-hero-chg {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  font-weight: 700;
+}
+
+/* 查價固定看板 */
+.mobile-kline-readout-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: var(--m-font-label);
+}
+
+.mkr-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.mkr-row strong {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-sub);
+  color: var(--text-primary);
+}
+
+.mkr-date {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.mkr-tag {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.mkr-bw strong {
+  color: #38bdf8;
+}
+
+.mkr-locked-broker-banner {
+  margin-top: 2px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--m-font-label);
+}
+
+.btn-mkr-clear {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 區間大按鈕 (1個月 / 3個月 / 半年) */
+.mobile-range-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mobile-range-big-btns {
+  display: flex;
+  flex: 1;
+  gap: 5px;
+}
+
+.m-range-btn {
+  flex: 1;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-sub);
+  font-weight: 800;
+}
+
+.m-range-btn.active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.mobile-overlay-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.m-ov-pill {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.m-ov-pill.active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.mobile-kline-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-main-kline-box {
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--chart-bg);
+  padding: 6px 4px 4px;
+}
+
+.mobile-touch-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 0 8px 4px;
+}
+
+.mobile-kline-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* 單一主副圖膠囊切換卡 */
+.mobile-single-subchart-card {
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--chart-bg);
+  padding: 8px 8px 6px;
+}
+
+.mobile-subchart-capsules {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 7px;
+  scrollbar-width: none;
+}
+
+.mobile-subchart-capsules::-webkit-scrollbar {
+  display: none;
+}
+
+.m-sub-capsule {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.m-sub-capsule.active {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.mobile-subchart-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  font-size: var(--m-font-label);
+  color: var(--text-secondary);
+}
+
+.msm-title {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.msm-prompt {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.msm-credit-switch {
+  display: inline-flex;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.msm-credit-switch button {
+  padding: 3px 10px;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.msm-credit-switch button.active {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+/* 個股下方區塊頁籤與單欄大字買賣超前15名分點 */
+.mobile-detail-bottom-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.md-sec-tab {
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.md-sec-tab.active {
+  background: #1e293b;
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.mobile-broker-panel,
+.mobile-health-fund-panel,
+.mobile-notes-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mbp-period-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--m-font-label);
+}
+
+.mbp-period-label {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.mbp-day-pill {
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+}
+
+.mbp-day-pill.active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.mbp-concentration {
+  margin-left: auto;
+  font-size: var(--m-font-label);
+}
+
+.mobile-buy-sell-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.m-bs-tab {
+  height: 44px;
+  border-radius: 11px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--m-font-sub);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.m-bs-tab.buy-tab.active {
+  background: rgba(220, 38, 38, 0.22);
+  border-color: #ef4444;
+  color: #ff6b6b;
+}
+
+.m-bs-tab.sell-tab.active {
+  background: rgba(21, 128, 61, 0.24);
+  border-color: #22c55e;
+  color: #4ade80;
+}
+
+.m-bs-tab.warn-tab.active {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
+.mbp-tap-guide,
+.mbp-index-note,
+.mobile-empty-brokers {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+}
+
+.mobile-broker-single-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-broker-item-card {
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mobile-broker-item-card.tint-buy {
+  border-left: 3px solid #ef4444;
+}
+
+.mobile-broker-item-card.tint-sell {
+  border-left: 3px solid #22c55e;
+}
+
+.mobile-broker-item-card.is-locked {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.mbic-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mbic-name-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mbic-rank {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-label);
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.mbic-name {
+  font-size: calc(var(--m-font-core) + 1.5px);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.mbic-locked-pill {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mbic-net {
+  font-family: var(--font-mono);
+  font-size: calc(var(--m-font-core) + 1px);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.mbic-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--m-font-label);
+  color: var(--text-secondary);
+}
+
+.mobile-fund-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.mf-box {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+}
+
+.mf-box strong {
+  font-family: var(--font-mono);
+  font-size: var(--m-font-core);
+  color: var(--text-primary);
+}
+
+/* 分點反查手機橫向選擇器 */
+.mobile-radar-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.mobile-broker-pill-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 10px 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.mobile-broker-pill-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-broker-select-card {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.mobile-broker-select-card strong {
+  font-size: var(--m-font-core);
+  font-weight: 800;
+}
+
+.mobile-broker-select-card span {
+  font-size: var(--m-font-label);
+  color: var(--text-muted);
+}
+
+.mobile-broker-select-card.selected {
+  border-color: #ef4444;
+  background: rgba(220, 38, 38, 0.18);
+}
+
+/* 手機彈窗自適應放大 */
+@media (max-width: 768px) {
+  .modal-panel {
+    width: 95vw !important;
+    max-height: 88vh !important;
+    padding: 16px !important;
+  }
+
+  .modal-title {
+    font-size: 18px !important;
+  }
+
+  .formula-desc,
+  .formula-code {
+    font-size: 14px !important;
+  }
+}

@@ -1021,8 +1021,8 @@ export async function fetchPrebuiltCloudSnapshot() {
   try {
     const ts = Date.now();
     const [liveRes, marketRes] = await Promise.all([
-      fetch('./live-data.json?t=' + ts).catch(() => null),
-      fetch('./market-stocks.json?t=' + ts).catch(() => null)
+      fetch('./live-data.json?t=' + ts, { cache: 'no-store' }).catch(() => null),
+      fetch('./market-stocks.json?t=' + ts, { cache: 'no-store' }).catch(() => null)
     ]);
 
     const liveData = liveRes && liveRes.ok ? await liveRes.json().catch(() => null) : null;

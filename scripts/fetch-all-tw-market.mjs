@@ -111,31 +111,36 @@ async function fetchJsonWithRetry(url, retries = 2, timeoutMs = 15000, fetchOpti
 }
 
 async function getRecentTradingDates(count = 23) {
-  // 優先從 public/live-data.json 的 2330 或 TAIEX K 線取得 100% 真實台股交易日曆
+  // 以台灣時區 (UTC+8) 推算至今日的最新平日，確保 GitHub Actions 於 14:15 / 15:10 執行時必定涵蓋當日最新交易日
+  const nowTw = new Date(Date.now() + 8 * 3600 * 1000);
+  const recentWeekdays = [];
+  for (let i = 0; i < 50 && recentWeekdays.length < count + 10; i++) {
+    const d = new Date(nowTw.getTime() - i * 86400000);
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    recentWeekdays.unshift(`${yyyy}${mm}${dd}`);
+  }
+
+  // 優先結合 public/live-data.json 已知交易日，並自動補齊至台灣今日之最新平日候選
   try {
     const livePath = path.resolve(process.cwd(), 'public/live-data.json');
     const live = JSON.parse(await fs.readFile(livePath, 'utf8'));
     const refStock = live.stocks?.find(s => s.code === '2330') || live.stocks?.[0];
-    if (refStock?.kline?.length >= count) {
-      return refStock.kline.slice(-count).map(d => d.compactDate || d.date.replace(/\//g, ''));
+    if (refStock?.kline?.length >= 10) {
+      const known = refStock.kline.map(d => d.compactDate || d.date.replace(/\//g, ''));
+      const lastKnown = known[known.length - 1];
+      const newerWeekdays = recentWeekdays.filter(dt => dt > lastKnown);
+      const mergedDates = [...known, ...newerWeekdays];
+      return mergedDates.slice(-(count + newerWeekdays.length));
     }
   } catch {
     // fallback below
   }
 
-  // 備援：以過去 40 天平日推算
-  const dates = [];
-  const now = new Date();
-  for (let i = 0; i < 45 && dates.length < count; i++) {
-    const d = new Date(now.getTime() - i * 86400000);
-    const dow = d.getDay();
-    if (dow === 0 || dow === 6) continue;
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    dates.unshift(`${yyyy}${mm}${dd}`);
-  }
-  return dates;
+  return recentWeekdays.slice(-count);
 }
 
 async function fetchTwseDay(compactDate) {
@@ -354,9 +359,12 @@ async function main() {
   }
 
   validDates.sort();
+  if (validDates.length > 22) {
+    validDates.splice(0, validDates.length - 22);
+  }
   console.log(`📈 成功抓取 ${validDates.length} 個完整全市場交易日行情 (${validDates[0]} ~ ${validDates[validDates.length - 1]})`);
 
-  // 3. 分批抓取全部 22 個交易日之全市場三大法人買賣超（完全不依賴 FinMind，杜絕任何 chipPending 缺口）
+  // 3. 分批抓取全部 22 個交易日之全市場三大法人買賣超（若 14:15 排程時當日法人尚未公布，自動標記 chipPending 留空）
   const instDates = validDates;
   const dailyInstByDate = new Map();
 
@@ -397,12 +405,14 @@ async function main() {
       if (!q) continue;
       const prevClose = kline.length > 0 ? kline[kline.length - 1].close : q.close - q.change;
       const changePct = prevClose > 0 ? Number(((q.change / prevClose) * 100).toFixed(2)) : 0;
-      const inst = dailyInstByDate.get(dt)?.get(code);
-      const foreignNet = inst ? inst.foreign : 0;
-      const trustNet = inst ? inst.trust : 0;
-      const dealerNet = inst ? inst.dealer : 0;
-      // 非精選 51 檔之全市場選股池，以官方三大法人淨買賣超合計作為主力籌碼基準（點入個股後自動補抓券商分點）
-      const mainNet = inst ? foreignNet + trustNet + dealerNet : 0;
+      const dayInstMap = dailyInstByDate.get(dt);
+      const isMarketPublished = Boolean(dayInstMap);
+      const inst = dayInstMap?.get(code);
+      const foreignNet = isMarketPublished ? (inst ? inst.foreign : 0) : null;
+      const trustNet = isMarketPublished ? (inst ? inst.trust : 0) : null;
+      const dealerNet = isMarketPublished ? (inst ? inst.dealer : 0) : null;
+      // 非精選深度股之全市場選股池，以官方三大法人淨買賣超合計作為主力籌碼基準；若 14:15 尚未公布法人則留空 (null)
+      const mainNet = isMarketPublished ? foreignNet + trustNet + dealerNet : null;
 
       kline.push({
         date: toSlashDate(dt),
@@ -418,7 +428,7 @@ async function main() {
         trustNet,
         dealerNet,
         mainNet,
-        chipPending: false
+        chipPending: !isMarketPublished
       });
     }
 
@@ -469,23 +479,27 @@ async function main() {
     const biasMonth =
       lastBar.ma20 > 0 ? Number((((lastBar.close - lastBar.ma20) / lastBar.ma20) * 100).toFixed(1)) : 0;
 
-    // 主力與法人指標
-    const vol1 = Math.max(1, lastBar.volume);
-    const vol5 = Math.max(1, kline.slice(-5).reduce((s, d) => s + d.volume, 0));
-    const vol10 = Math.max(1, kline.slice(-10).reduce((s, d) => s + d.volume, 0));
+    // 主力與法人指標（以最新已公布法人之交易日為基準，避免 14:15 股價先行更新時把籌碼歸零）
+    const publishedChipBars = kline.filter(d => !d.chipPending && d.mainNet !== null);
+    const lastChipBar = publishedChipBars[publishedChipBars.length - 1] || lastBar;
+    const lastChip5 = publishedChipBars.slice(-5);
+    const lastChip10 = publishedChipBars.slice(-10);
 
-    const main1 = Math.round((lastBar.mainNet / vol1) * 100);
-    const main5 = Math.round((kline.slice(-5).reduce((s, d) => s + d.mainNet, 0) / vol5) * 100);
-    const main10 = Math.round((kline.slice(-10).reduce((s, d) => s + d.mainNet, 0) / vol10) * 100);
+    const vol1 = Math.max(1, lastChipBar.volume || 1);
+    const vol5 = Math.max(1, lastChip5.reduce((s, d) => s + d.volume, 0));
+    const vol10 = Math.max(1, lastChip10.reduce((s, d) => s + d.volume, 0));
 
-    const foreignPct = Math.round((lastBar.foreignNet / vol1) * 100);
-    const trustPct = Math.round((lastBar.trustNet / vol1) * 100);
-    const dealerPct = Math.round((lastBar.dealerNet / vol1) * 100);
+    const main1 = Math.round(((lastChipBar.mainNet || 0) / vol1) * 100);
+    const main5 = Math.round((lastChip5.reduce((s, d) => s + (d.mainNet || 0), 0) / vol5) * 100);
+    const main10 = Math.round((lastChip10.reduce((s, d) => s + (d.mainNet || 0), 0) / vol10) * 100);
 
-    const recent10 = kline.slice(-10);
-    const foreignConsec = calcConsecutiveDays(recent10.map(d => d.foreignNet));
-    const trustConsec = calcConsecutiveDays(recent10.map(d => d.trustNet));
-    const mainConsec = calcConsecutiveDays(recent10.map(d => d.mainNet));
+    const foreignPct = Math.round(((lastChipBar.foreignNet || 0) / vol1) * 100);
+    const trustPct = Math.round(((lastChipBar.trustNet || 0) / vol1) * 100);
+    const dealerPct = Math.round(((lastChipBar.dealerNet || 0) / vol1) * 100);
+
+    const foreignConsec = calcConsecutiveDays(lastChip10.map(d => d.foreignNet || 0));
+    const trustConsec = calcConsecutiveDays(lastChip10.map(d => d.trustNet || 0));
+    const mainConsec = calcConsecutiveDays(lastChip10.map(d => d.mainNet || 0));
 
     const momentum = computeStockMomentum(kline);
     const val = valuationMap.get(code) || { pe: latestQ.pe || 0, pb: 0, dividendYield: 0 };
@@ -508,7 +522,8 @@ async function main() {
       foreignNet: d.foreignNet,
       trustNet: d.trustNet,
       dealerNet: d.dealerNet,
-      mainNet: d.mainNet
+      mainNet: d.mainNet,
+      chipPending: d.chipPending
     }));
 
     allStocks.push({

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { computePeriodChipAnalysis, BROKER_LIST } from '../data/mockStocks';
 import { fetchSingleBrokerHistoryFromPortal, hydrateStockBrokerSeries } from '../services/liveStockService';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 export const STOCK_THEME_GROUPS = [
   {
@@ -45,7 +46,7 @@ export const STOCK_THEME_GROUPS = [
   }
 ];
 
-// 通用副圖 SVG 元件（同時繪製紅綠柱狀圖 + 累計/庫存折線圖 + 同步十字查價線；若當日盤後籌碼尚未公布則自動留空）
+// 通用副圖 SVG 元件（同時繪製紅綠柱狀圖 + 累計/庫存折線圖 + 同步十字查價線；支援手機單指滑動查價；若當日盤後籌碼尚未公布則自動留空）
 function SubIndicatorChart({
   data,
   hoverIdx,
@@ -53,16 +54,25 @@ function SubIndicatorChart({
   barKey,
   lineKey,
   lineColor = '#7e57c2',
-  isKDJ = false
+  isKDJ = false,
+  chartHeight = 68
 }) {
   const width = 760;
-  const height = 68;
+  const height = chartHeight;
   const padLeft = 6;
   const padRight = 54;
   const plotW = width - padLeft - padRight;
   const count = data.length || 1;
   const stepX = plotW / count;
   const barW = Math.max(2.5, Math.min(8, stepX * 0.62));
+
+  const updateIdxFromClientX = (svgEl, clientX) => {
+    const rect = svgEl.getBoundingClientRect();
+    if (!rect.width) return;
+    const relX = ((clientX - rect.left) / rect.width) * width - padLeft;
+    const idx = Math.min(count - 1, Math.max(0, Math.floor(relX / stepX)));
+    onHoverIdx(idx);
+  };
 
   if (isKDJ) {
     const kPoints = data
@@ -85,18 +95,20 @@ function SubIndicatorChart({
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="subchart-svg"
-        onMouseMove={e => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const relX = ((e.clientX - rect.left) / rect.width) * width - padLeft;
-          const idx = Math.min(count - 1, Math.max(0, Math.floor(relX / stepX)));
-          onHoverIdx(idx);
+        style={{ touchAction: 'pan-y' }}
+        onMouseMove={e => updateIdxFromClientX(e.currentTarget, e.clientX)}
+        onTouchStart={e => {
+          if (e.touches[0]) updateIdxFromClientX(e.currentTarget, e.touches[0].clientX);
+        }}
+        onTouchMove={e => {
+          if (e.touches[0]) updateIdxFromClientX(e.currentTarget, e.touches[0].clientX);
         }}
       >
         <line x1={padLeft} y1={14} x2={width - padRight} y2={14} stroke="var(--chart-grid)" strokeDasharray="2 2" />
         <line x1={padLeft} y1={height / 2} x2={width - padRight} y2={height / 2} stroke="var(--chart-grid)" />
         <line x1={padLeft} y1={height - 12} x2={width - padRight} y2={height - 12} stroke="var(--chart-grid)" strokeDasharray="2 2" />
-        <polyline fill="none" stroke="#2563eb" strokeWidth="1.4" points={kPoints} />
-        <polyline fill="none" stroke="#9333ea" strokeWidth="1.4" points={dPoints} />
+        <polyline fill="none" stroke="#2563eb" strokeWidth="1.5" points={kPoints} />
+        <polyline fill="none" stroke="#9333ea" strokeWidth="1.5" points={dPoints} />
         <line x1={hoverX} y1={0} x2={hoverX} y2={height} stroke="var(--crosshair-color)" strokeWidth="1" />
         <text x={width - padRight + 4} y={13} className="axis-label">80</text>
         <text x={width - padRight + 4} y={height / 2 + 4} className="axis-label">50</text>
@@ -140,17 +152,18 @@ function SubIndicatorChart({
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className="subchart-svg"
-      onMouseMove={e => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const relX = ((e.clientX - rect.left) / rect.width) * width - padLeft;
-        const idx = Math.min(count - 1, Math.max(0, Math.floor(relX / stepX)));
-        onHoverIdx(idx);
+      style={{ touchAction: 'pan-y' }}
+      onMouseMove={e => updateIdxFromClientX(e.currentTarget, e.clientX)}
+      onTouchStart={e => {
+        if (e.touches[0]) updateIdxFromClientX(e.currentTarget, e.touches[0].clientX);
+      }}
+      onTouchMove={e => {
+        if (e.touches[0]) updateIdxFromClientX(e.currentTarget, e.touches[0].clientX);
       }}
     >
       <line x1={padLeft} y1={zeroY} x2={width - padRight} y2={zeroY} stroke="var(--chart-grid)" />
       {data.map((d, i) => {
         const rawVal = d[barKey];
-        // 若當日盤後籌碼尚未公布 (null / undefined)，保持空白不畫柱狀圖
         if (rawVal === null || rawVal === undefined) {
           return null;
         }
@@ -161,7 +174,7 @@ function SubIndicatorChart({
         const color = val >= 0 ? '#dc2626' : '#15803d';
         return <rect key={i} x={x} y={y} width={barW} height={h} fill={color} />;
       })}
-      {linePoints && <polyline fill="none" stroke={lineColor} strokeWidth="1.5" points={linePoints} />}
+      {linePoints && <polyline fill="none" stroke={lineColor} strokeWidth="1.6" points={linePoints} />}
       <line x1={hoverX} y1={0} x2={hoverX} y2={height} stroke="var(--crosshair-color)" strokeWidth="1" />
       <text x={width - padRight + 4} y={14} className="axis-label">
         {Math.round(maxAbsBar).toLocaleString()}
@@ -174,7 +187,7 @@ function SubIndicatorChart({
 export default function StockDetail({
   stock,
   allStocks,
-  taiexData,
+  taiexData: _taiexData,
   initialBrokerId,
   watchlistCodes = [],
   onToggleWatchlist,
@@ -182,6 +195,8 @@ export default function StockDetail({
   onBackToScreener,
   onOpenFormulaModal
 }) {
+  const isMobile = useIsMobile(768);
+  const mobileChartTopRef = useRef(null);
   const isMarketIndex = stock.code === 'TAIEX' || Boolean(stock.isMarketIndex);
   const isWatchlisted = watchlistCodes.includes(stock.code);
   const unitLabel = isMarketIndex ? '億' : '張';
@@ -189,7 +204,7 @@ export default function StockDetail({
   const [periodDays, setPeriodDays] = useState(1); // 1, 5, 10, 20, 60
   const [endDateIdx, setEndDateIdx] = useState(stock.kline.length - 1);
   const [hoverIdx, setHoverIdx] = useState(stock.kline.length - 1);
-  const [chartRange, setChartRange] = useState(60); // 45(3月), 60(6月), 75(1年)
+  const [chartRange, setChartRange] = useState(60); // 20(1個月), 60(3個月), 120(半年), 250(1年)
   const [overlayMode, setOverlayMode] = useState('bollinger'); // 'bollinger' | 'ma' | 'vbp' | 'brokerCost'
   const [leftTab, setLeftTab] = useState('個股K線');
   const [rightTab, setRightTab] = useState('籌碼分析');
@@ -202,7 +217,14 @@ export default function StockDetail({
   const [dynamicBrokerHistories, setDynamicBrokerHistories] = useState({});
   const [creditSubMode, setCreditSubMode] = useState(isMarketIndex ? 'margin' : 'short'); // 'short' | 'margin'
   const [subchartPreset, setSubchartPreset] = useState(5); // 預設顯示 5 層高清晰副圖 (含散戶指標)，可一鍵切 1~6 層
-  const [pickerCategory, setPickerCategory] = useState('ALL'); // 標的切換分類篩選 ('ALL' | 'WATCHLIST' | 'CCL' | 'THEME' | 'SWING' | 'DAYTRADE' | 'INDUSTRY')
+  const [pickerCategory, setPickerCategory] = useState('ALL'); // 標的切換分類篩選
+
+  // 手機專屬狀態：單一主副圖膠囊切換 & 買賣超前15名大字單欄頁籤切換
+  const [mobileSubchartTab, setMobileSubchartTab] = useState(() =>
+    initialBrokerId ? 'broker' : 'main'
+  ); // 'broker' | 'main' | 'foreign' | 'trust' | 'kd' | 'margin'
+  const [mobileBrokerSide, setMobileBrokerSide] = useState('buy'); // 'buy' | 'sell'
+  const [mobileSectionTab, setMobileSectionTab] = useState('brokers'); // 'brokers' | 'health' | 'notes'
 
   // 個股筆記與到價提醒狀態 (持久化於 localStorage)
   const [stockNotes, setStockNotes] = useState(() => {
@@ -293,9 +315,12 @@ export default function StockDetail({
     setHoverIdx(stock.kline.length - 1);
     if (stock.code === 'TAIEX') {
       setCreditSubMode('margin');
+      setMobileSubchartTab('main');
     }
     if (initialBrokerId) {
       setSelectedBrokerIds([initialBrokerId]);
+      setMobileSubchartTab('broker');
+      setChartRange(60);
     } else {
       setSelectedBrokerIds([]);
     }
@@ -713,8 +738,863 @@ export default function StockDetail({
     ];
   }, [stock]);
 
+  const handleMainKlinePointer = (svgEl, clientX) => {
+    const rect = svgEl.getBoundingClientRect();
+    if (!rect.width) return;
+    const relX = ((clientX - rect.left) / rect.width) * mainChartWidth - padLeft;
+    const localIdx = Math.min(count - 1, Math.max(0, Math.floor(relX / stepX)));
+    setHoverIdx(visibleStartGlobalIdx + localIdx);
+  };
+
+  const handleMobileSwitchSubchart = tabId => {
+    setMobileSubchartTab(tabId);
+    if (tabId === 'broker') {
+      setMainSubchartFocus('broker');
+      if (selectedBrokerIds.length === 0 && hasRealBrokerData && chipAnalysis.topBuyers?.length > 0) {
+        setSelectedBrokerIds([chipAnalysis.topBuyers[0].id]);
+      }
+      if (chartRange < 60) {
+        setChartRange(60);
+      }
+    } else if (tabId === 'margin') {
+      setCreditSubMode('margin');
+    }
+  };
+
+  const handleMobileBrokerTap = brokerId => {
+    const isSameSingle = selectedBrokerIds.length === 1 && selectedBrokerIds[0] === brokerId;
+    if (isSameSingle) {
+      setSelectedBrokerIds([]);
+      return;
+    }
+    setSelectedBrokerIds([brokerId]);
+    setMainSubchartFocus('broker');
+    setMobileSubchartTab('broker');
+    if (chartRange < 60) {
+      setChartRange(60);
+    }
+    if (mobileChartTopRef.current) {
+      mobileChartTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const fmtSignedNum = val => {
+    if (val === null || val === undefined || Number.isNaN(Number(val))) return '待公布';
+    const n = Number(val);
+    return `${n > 0 ? '+' : ''}${n.toLocaleString()}`;
+  };
+
+  const hoveredBandwidthPct =
+    hoveredDay?.bollUpper && hoveredDay?.bollLower
+      ? `${(((hoveredDay.bollUpper / Math.max(0.01, hoveredDay.bollLower)) - 1) * 100).toFixed(1)}%`
+      : '--';
+
+  const mobileSubchartOptions = isMarketIndex
+    ? [
+        { id: 'main', label: '主力法人' },
+        { id: 'foreign', label: '外資' },
+        { id: 'trust', label: '投信' },
+        { id: 'kd', label: 'KD' },
+        { id: 'margin', label: '融資' }
+      ]
+    : [
+        { id: 'broker', label: '分點進出' },
+        { id: 'main', label: '主力法人' },
+        { id: 'foreign', label: '外資' },
+        { id: 'trust', label: '投信' },
+        { id: 'kd', label: 'KD' },
+        { id: 'margin', label: '融資' }
+      ];
+
+  const activeMobileBrokerList =
+    mobileBrokerSide === 'buy' ? chipAnalysis.topBuyers || [] : chipAnalysis.topSellers || [];
+
   return (
     <section className="detail-workstation" id="stock-detail-workstation">
+      {isMobile ? (
+        <div className="mobile-detail-root" id="mobile-detail-root">
+          {/* 1. 手機個股標題與切換列 */}
+          <div className="mobile-detail-top-card">
+            <div className="md-nav-row">
+              <button
+                type="button"
+                className="md-back-btn"
+                onClick={onBackToScreener}
+                id="mobile-btn-back-screener"
+              >
+                ◀ 選股
+              </button>
+
+              <select
+                className="md-stock-select"
+                value={stock.code}
+                onChange={e => onSelectStock(e.target.value)}
+                id="mobile-select-detail-stock"
+                aria-label="切換個股"
+              >
+                <option value="TAIEX">📊 TAIEX 加權指數</option>
+                {watchlistStocks.length > 0 && (
+                  <optgroup label={`⭐ 我的自選股 (${watchlistStocks.length})`}>
+                    {watchlistStocks.map(s => (
+                      <option key={`mwl-${s.code}`} value={s.code}>
+                        ★ {s.code} {s.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label={`📊 全市場選股池 (${allStocks.length})`}>
+                  {allStocks.map(s => (
+                    <option key={`mall-${s.code}`} value={s.code}>
+                      {s.code} {s.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+
+              <div className="md-stepper-group">
+                <button
+                  type="button"
+                  className="md-step-btn"
+                  onClick={() => handleStepStock(-1)}
+                  aria-label="上一檔"
+                >
+                  ◀
+                </button>
+                <button
+                  type="button"
+                  className="md-step-btn"
+                  onClick={() => handleStepStock(1)}
+                  aria-label="下一檔"
+                >
+                  ▶
+                </button>
+              </div>
+
+              {!isMarketIndex && (
+                <button
+                  type="button"
+                  className={`md-star-btn ${isWatchlisted ? 'active' : ''}`}
+                  onClick={() => onToggleWatchlist && onToggleWatchlist(stock.code)}
+                  id="mobile-btn-toggle-star"
+                  aria-label="加入或移除自選"
+                >
+                  {isWatchlisted ? '★ 自選' : '☆ 加自選'}
+                </button>
+              )}
+            </div>
+
+            <div className="md-quote-hero-row">
+              <div className="md-quote-left">
+                <div className="md-title-line">
+                  <strong className="md-stock-name">{stock.name}</strong>
+                  <span className="md-stock-code">{stock.code}</span>
+                </div>
+                <span className="md-industry-tag">{stock.industry}</span>
+              </div>
+
+              <div className="md-quote-right">
+                <span className={`md-hero-price ${stock.change >= 0 ? 'val-up' : 'val-down'}`}>
+                  {stock.price?.toLocaleString()}
+                </span>
+                <span className={`md-hero-chg ${stock.change >= 0 ? 'val-up' : 'val-down'}`}>
+                  {stock.change >= 0 ? `▲ +${stock.change}` : `▼ ${stock.change}`} (
+                  {stock.changePct >= 0 ? `+${stock.changePct}` : stock.changePct}%)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. 上方固定查價看板（當日開高低收、成交量、布林軌道與買賣超） */}
+          <div className="mobile-kline-readout-card" ref={mobileChartTopRef} id="mobile-kline-readout">
+            <div className="mkr-row mkr-ohlc-row">
+              <span className="mkr-date">{hoveredDay.date}</span>
+              <span>開 <strong>{hoveredDay.open}</strong></span>
+              <span>高 <strong className="val-up">{hoveredDay.high}</strong></span>
+              <span>低 <strong className="val-down">{hoveredDay.low}</strong></span>
+              <span>
+                收{' '}
+                <strong className={hoveredDay.change >= 0 ? 'val-up' : 'val-down'}>
+                  {hoveredDay.close} ({hoveredDay.changePct >= 0 ? `+${hoveredDay.changePct}` : hoveredDay.changePct}%)
+                </strong>
+              </span>
+              <span>
+                量 <strong>{hoveredDay.volume?.toLocaleString()} {unitLabel}</strong>
+              </span>
+            </div>
+
+            <div className="mkr-row mkr-boll-row">
+              <span className="mkr-tag">布林軌道</span>
+              <span>上軌 <strong>{hoveredDay.bollUpper ?? '--'}</strong></span>
+              <span>月線 <strong>{hoveredDay.ma20 ?? '--'}</strong></span>
+              <span>下軌 <strong>{hoveredDay.bollLower ?? '--'}</strong></span>
+              <span className="mkr-bw">帶寬 <strong>{hoveredBandwidthPct}</strong></span>
+            </div>
+
+            <div className="mkr-row mkr-chips-row">
+              <span className="mkr-tag">當日買賣超</span>
+              <span className={(hoveredDay.mainNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                主力 <strong>{fmtSignedNum(hoveredDay.mainNet)}</strong>
+              </span>
+              <span className={(hoveredDay.foreignNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                外資 <strong>{fmtSignedNum(hoveredDay.foreignNet)}</strong>
+              </span>
+              <span className={(hoveredDay.trustNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                投信 <strong>{fmtSignedNum(hoveredDay.trustNet)}</strong>
+              </span>
+            </div>
+
+            {!isMarketIndex && selectedBrokerIds.length > 0 && (
+              <div className="mkr-locked-broker-banner">
+                <span>
+                  🎯 聯動分點：<strong>{selectedBrokerNames}</strong>｜當日{' '}
+                  <strong
+                    className={(hoveredBrokerPoint?.brokerNet ?? 0) >= 0 ? 'val-up' : 'val-down'}
+                  >
+                    {fmtSignedNum(hoveredBrokerPoint?.brokerNet)} 張
+                  </strong>{' '}
+                  (累計 {hoveredBrokerPoint?.brokerCum?.toLocaleString() ?? 0} 張)
+                </span>
+                <button
+                  type="button"
+                  className="btn-mkr-clear"
+                  onClick={handleClearAllBrokers}
+                >
+                  ✕ 解除
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 3. 區間大按鈕切換 (`1個月 / 3個月 / 半年`) ＋ 主圖疊加切換 */}
+          <div className="mobile-range-overlay-bar">
+            <div className="mobile-range-big-btns" role="group" aria-label="K線區間切換">
+              <button
+                type="button"
+                className={`m-range-btn ${chartRange <= 25 ? 'active' : ''}`}
+                onClick={() => setChartRange(20)}
+                id="mobile-range-1m"
+              >
+                1個月
+              </button>
+              <button
+                type="button"
+                className={`m-range-btn ${chartRange > 25 && chartRange <= 75 ? 'active' : ''}`}
+                onClick={() => setChartRange(60)}
+                id="mobile-range-3m"
+              >
+                3個月
+              </button>
+              <button
+                type="button"
+                className={`m-range-btn ${chartRange > 75 && chartRange <= 150 ? 'active' : ''}`}
+                onClick={() => setChartRange(120)}
+                id="mobile-range-6m"
+              >
+                半年
+              </button>
+              <button
+                type="button"
+                className={`m-range-btn ${chartRange > 150 ? 'active' : ''}`}
+                onClick={() => setChartRange(250)}
+                id="mobile-range-1y"
+              >
+                1年
+              </button>
+            </div>
+
+            <div className="mobile-overlay-pills">
+              <button
+                type="button"
+                className={`m-ov-pill ${overlayMode === 'bollinger' ? 'active' : ''}`}
+                onClick={() => setOverlayMode('bollinger')}
+              >
+                布林
+              </button>
+              <button
+                type="button"
+                className={`m-ov-pill ${overlayMode === 'ma' ? 'active' : ''}`}
+                onClick={() => setOverlayMode('ma')}
+              >
+                均線
+              </button>
+              {!isMarketIndex && (
+                <button
+                  type="button"
+                  className={`m-ov-pill ${overlayMode === 'brokerCost' ? 'active' : ''}`}
+                  onClick={() => setOverlayMode('brokerCost')}
+                >
+                  成本線
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 4. 手機版 K 線主圖（支援單指左右滑動十字查價） */}
+          <div className="kline-interactive-area mobile-kline-stage">
+            <div className="main-kline-box mobile-main-kline-box">
+              <div className="mobile-touch-hint">👆 單指於圖上左右滑動即可逐日十字查價</div>
+              <svg
+                viewBox={`0 0 ${mainChartWidth} ${mainChartHeight}`}
+                className="main-kline-svg mobile-kline-svg"
+                style={{ touchAction: 'pan-y' }}
+                onMouseMove={e => handleMainKlinePointer(e.currentTarget, e.clientX)}
+                onTouchStart={e => {
+                  if (e.touches[0]) handleMainKlinePointer(e.currentTarget, e.touches[0].clientX);
+                }}
+                onTouchMove={e => {
+                  if (e.touches[0]) handleMainKlinePointer(e.currentTarget, e.touches[0].clientX);
+                }}
+                id="mobile-kline-svg"
+              >
+                {periodDays > 1 && (
+                  <rect
+                    x={padLeft + Math.max(0, chipAnalysis.startIdx - visibleStartGlobalIdx) * stepX}
+                    y={kAreaTop}
+                    width={
+                      Math.max(
+                        1,
+                        chipAnalysis.endIdx - Math.max(visibleStartGlobalIdx, chipAnalysis.startIdx) + 1
+                      ) * stepX
+                    }
+                    height={kAreaH}
+                    fill="rgba(59, 130, 246, 0.12)"
+                  />
+                )}
+
+                {priceTicks.map((pt, idx) => {
+                  const y = kAreaTop + (idx / (priceTicks.length - 1)) * kAreaH;
+                  return (
+                    <g key={idx}>
+                      <line
+                        x1={padLeft}
+                        y1={y}
+                        x2={mainChartWidth - padRight}
+                        y2={y}
+                        stroke="var(--chart-grid)"
+                        strokeDasharray="2 2"
+                      />
+                      <text x={mainChartWidth - padRight + 4} y={y + 4} className="axis-label">
+                        {pt}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {overlayMode === 'bollinger' ? (
+                  <>
+                    <polyline fill="none" stroke="#94a3b8" strokeWidth="1.4" points={bollUpperPts} />
+                    <polyline fill="none" stroke="#ef4444" strokeWidth="1.5" points={bollMidPts} />
+                    <polyline fill="none" stroke="#94a3b8" strokeWidth="1.4" points={bollLowerPts} />
+                  </>
+                ) : overlayMode === 'brokerCost' && !isMarketIndex ? (
+                  <>
+                    <polyline fill="none" stroke="#ef4444" strokeWidth="1.2" strokeDasharray="3 3" points={bollMidPts} />
+                    {selectedBrokerIds.length > 0 && brokerCostPts && (
+                      <polyline fill="none" stroke="#38bdf8" strokeWidth="2.4" points={brokerCostPts} />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <polyline fill="none" stroke="#3b82f6" strokeWidth="1.4" points={ma5Pts} />
+                    <polyline fill="none" stroke="#f59e0b" strokeWidth="1.4" points={ma10Pts} />
+                    <polyline fill="none" stroke="#ef4444" strokeWidth="1.4" points={bollMidPts} />
+                    <polyline fill="none" stroke="#10b981" strokeWidth="1.4" points={ma60Pts} />
+                  </>
+                )}
+
+                {visibleKline.map((d, i) => {
+                  const cx = padLeft + i * stepX + stepX / 2;
+                  const x = padLeft + i * stepX + (stepX - candleW) / 2;
+                  const isUp = d.close >= d.open;
+                  const color = isUp ? '#ef4444' : '#22c55e';
+                  const highY = priceToY(d.high);
+                  const lowY = priceToY(d.low);
+                  const openY = priceToY(d.open);
+                  const closeY = priceToY(d.close);
+                  const bodyTop = Math.min(openY, closeY);
+                  const bodyH = Math.max(2, Math.abs(closeY - openY));
+
+                  const vH = Math.max(2, (d.volume / maxVol) * volH);
+                  const vY = volBottom - vH;
+
+                  return (
+                    <g key={d.date}>
+                      <line x1={cx} y1={highY} x2={cx} y2={lowY} stroke={color} strokeWidth="1.3" />
+                      <rect x={x} y={bodyTop} width={candleW} height={bodyH} fill={color} />
+                      <rect
+                        x={x}
+                        y={vY}
+                        width={candleW}
+                        height={vH}
+                        fill={i === visibleKline.length - 1 ? '#eab308' : '#64748b'}
+                        opacity="0.88"
+                      />
+                    </g>
+                  );
+                })}
+
+                {visibleKline[highestIdx] && (
+                  <g
+                    transform={`translate(${Math.min(
+                      mainChartWidth - padRight - 50,
+                      Math.max(10, padLeft + highestIdx * stepX - 14)
+                    )}, ${Math.max(4, priceToY(visibleKline[highestIdx].high) - 18)})`}
+                  >
+                    <rect width="46" height="16" rx="3" fill="var(--callout-bg)" stroke="#ef4444" strokeWidth="1" />
+                    <text x="23" y="12" textAnchor="middle" fill="#ef4444" fontSize="11" fontWeight="700">
+                      {visibleKline[highestIdx].high}
+                    </text>
+                  </g>
+                )}
+                {visibleKline[lowestIdx] && (
+                  <g
+                    transform={`translate(${Math.min(
+                      mainChartWidth - padRight - 50,
+                      Math.max(10, padLeft + lowestIdx * stepX - 14)
+                    )}, ${Math.min(kAreaBottom - 16, priceToY(visibleKline[lowestIdx].low) + 3)})`}
+                  >
+                    <rect width="46" height="16" rx="3" fill="var(--callout-bg)" stroke="#22c55e" strokeWidth="1" />
+                    <text x="23" y="12" textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="700">
+                      {visibleKline[lowestIdx].low}
+                    </text>
+                  </g>
+                )}
+
+                <line x1={padLeft} y1={volTop - 4} x2={mainChartWidth - padRight} y2={volTop - 4} stroke="var(--chart-grid)" />
+                <line x1={hoverX} y1={0} x2={hoverX} y2={mainChartHeight} stroke="#facc15" strokeWidth="1.2" />
+              </svg>
+            </div>
+
+            {/* 5. 副圖預設僅展開 1 個主副圖（上方附膠囊按鈕快速切換：分點進出 / 主力法人 / 外資 / 投信 / KD / 融資） */}
+            <div className="mobile-single-subchart-card" id="mobile-single-subchart">
+              <div className="mobile-subchart-capsules" role="tablist" aria-label="副圖指標切換">
+                {mobileSubchartOptions.map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={mobileSubchartTab === opt.id}
+                    className={`m-sub-capsule ${mobileSubchartTab === opt.id ? 'active' : ''}`}
+                    onClick={() => handleMobileSwitchSubchart(opt.id)}
+                    id={`mobile-subtab-${opt.id}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {mobileSubchartTab === 'broker' && !isMarketIndex ? (
+                <div className="mobile-subchart-body">
+                  <div className="mobile-subchart-meta">
+                    {selectedBrokerIds.length > 0 ? (
+                      <>
+                        <span className="msm-title">
+                          🎯 <strong>{selectedBrokerNames}</strong> (60日真實分點軌跡)
+                        </span>
+                        {selectedBrokerBehavior && (
+                          <span className={`badge-broker-behavior ${selectedBrokerBehavior.type}`}>
+                            {selectedBrokerBehavior.label}
+                          </span>
+                        )}
+                        <span
+                          className={
+                            (hoveredBrokerPoint?.brokerNet ?? 0) >= 0 ? 'val-up' : 'val-down'
+                          }
+                        >
+                          當日 <strong>{fmtSignedNum(hoveredBrokerPoint?.brokerNet)}</strong> 張 (買{' '}
+                          {hoveredBrokerPoint?.buy ?? '--'} / 賣 {hoveredBrokerPoint?.sell ?? '--'})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="msm-prompt">
+                        👇 點選下方「買超前15名 / 賣超前15名」任一分點，立即聯動顯示 60 日真實進出副圖
+                      </span>
+                    )}
+                  </div>
+                  <SubIndicatorChart
+                    data={selectedBrokerDailyData}
+                    hoverIdx={localHoverIdx}
+                    onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                    barKey="brokerNet"
+                    lineKey="brokerCum"
+                    lineColor="#38bdf8"
+                    chartHeight={102}
+                  />
+                </div>
+              ) : mobileSubchartTab === 'foreign' ? (
+                <div className="mobile-subchart-body">
+                  <div className="mobile-subchart-meta">
+                    <span className="msm-title">🌐 外資買賣超與持股庫存</span>
+                    <span className={(hoveredDay.foreignNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                      買賣超 <strong>{fmtSignedNum(hoveredDay.foreignNet)} {unitLabel}</strong>
+                    </span>
+                    <span>
+                      庫存 <strong>{hoveredDay.foreignHold?.toLocaleString() ?? '--'}</strong>
+                      {!isMarketIndex && ` (${hoveredDay.foreignHoldPct}%)`}
+                    </span>
+                  </div>
+                  <SubIndicatorChart
+                    data={visibleKline}
+                    hoverIdx={localHoverIdx}
+                    onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                    barKey="foreignNet"
+                    lineKey="foreignHold"
+                    lineColor="#f59e0b"
+                    chartHeight={102}
+                  />
+                </div>
+              ) : mobileSubchartTab === 'trust' ? (
+                <div className="mobile-subchart-body">
+                  <div className="mobile-subchart-meta">
+                    <span className="msm-title">🏦 投信買賣超與持股庫存</span>
+                    <span className={(hoveredDay.trustNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                      買賣超 <strong>{fmtSignedNum(hoveredDay.trustNet)} {unitLabel}</strong>
+                    </span>
+                    <span>
+                      庫存 <strong>{hoveredDay.trustHold?.toLocaleString() ?? '--'}</strong>
+                    </span>
+                  </div>
+                  <SubIndicatorChart
+                    data={visibleKline}
+                    hoverIdx={localHoverIdx}
+                    onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                    barKey="trustNet"
+                    lineKey="trustHold"
+                    lineColor="#d97706"
+                    chartHeight={102}
+                  />
+                </div>
+              ) : mobileSubchartTab === 'kd' ? (
+                <div className="mobile-subchart-body">
+                  <div className="mobile-subchart-meta">
+                    <span className="msm-title">📈 KD 隨機指標 (9,3,3)</span>
+                    <span style={{ color: '#60a5fa' }}>K(9) <strong>{hoveredDay.k}</strong></span>
+                    <span style={{ color: '#f59e0b' }}>D(9) <strong>{hoveredDay.d}</strong></span>
+                  </div>
+                  <SubIndicatorChart
+                    data={visibleKline}
+                    hoverIdx={localHoverIdx}
+                    onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                    isKDJ
+                    chartHeight={102}
+                  />
+                </div>
+              ) : mobileSubchartTab === 'margin' ? (
+                <div className="mobile-subchart-body">
+                  <div className="mobile-subchart-meta">
+                    <div className="msm-credit-switch">
+                      <button
+                        type="button"
+                        className={creditSubMode === 'margin' ? 'active' : ''}
+                        onClick={() => setCreditSubMode('margin')}
+                      >
+                        融資
+                      </button>
+                      <button
+                        type="button"
+                        className={creditSubMode === 'short' ? 'active' : ''}
+                        onClick={() => setCreditSubMode('short')}
+                      >
+                        融券
+                      </button>
+                    </div>
+                    {creditSubMode === 'margin' ? (
+                      <>
+                        <span className={(hoveredDay.marginDiff ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                          增減 <strong>{fmtSignedNum(hoveredDay.marginDiff)} {unitLabel}</strong>
+                        </span>
+                        <span>
+                          餘額 <strong>{hoveredDay.marginBal?.toLocaleString() ?? '--'}</strong> (維持率 {stock.maintRatio}%)
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className={(hoveredDay.shortDiff ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                          增減 <strong>{fmtSignedNum(hoveredDay.shortDiff)} 張</strong>
+                        </span>
+                        <span>
+                          餘額 <strong>{hoveredDay.shortBal?.toLocaleString() ?? '--'}</strong>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <SubIndicatorChart
+                    data={visibleKline}
+                    hoverIdx={localHoverIdx}
+                    onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                    barKey={creditSubMode === 'short' ? 'shortDiff' : 'marginDiff'}
+                    lineKey={creditSubMode === 'short' ? 'shortBal' : 'marginBal'}
+                    lineColor="#f59e0b"
+                    chartHeight={102}
+                  />
+                </div>
+              ) : (
+                /* 預設：主力法人合計買賣超 */
+                <div className="mobile-subchart-body">
+                  <div className="mobile-subchart-meta">
+                    <span className="msm-title">
+                      📊 {isMarketIndex ? '大盤三大法人合計' : '主力買賣超與累計趨勢'}
+                    </span>
+                    <span className={(hoveredDay.mainNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+                      當日 <strong>{fmtSignedNum(hoveredDay.mainNet)} {unitLabel}</strong>
+                    </span>
+                    <span>
+                      累計 <strong>{hoveredDay.cumMainNet?.toLocaleString() ?? '--'} {unitLabel}</strong>
+                    </span>
+                  </div>
+                  <SubIndicatorChart
+                    data={visibleKline}
+                    hoverIdx={localHoverIdx}
+                    onHoverIdx={idx => setHoverIdx(visibleStartGlobalIdx + idx)}
+                    barKey="mainNet"
+                    lineKey="cumMainNet"
+                    lineColor="#38bdf8"
+                    chartHeight={102}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 6. 下方分頁：主力分點前15名 / 體檢與基本面 / 交易筆記 */}
+          <div className="mobile-detail-bottom-tabs">
+            <button
+              type="button"
+              className={`md-sec-tab ${mobileSectionTab === 'brokers' ? 'active' : ''}`}
+              onClick={() => setMobileSectionTab('brokers')}
+            >
+              🎯 分點買賣超排行
+            </button>
+            <button
+              type="button"
+              className={`md-sec-tab ${mobileSectionTab === 'health' ? 'active' : ''}`}
+              onClick={() => setMobileSectionTab('health')}
+            >
+              🩺 基本面與體檢
+            </button>
+            <button
+              type="button"
+              className={`md-sec-tab ${mobileSectionTab === 'notes' ? 'active' : ''}`}
+              onClick={() => setMobileSectionTab('notes')}
+            >
+              📝 交易筆記
+            </button>
+          </div>
+
+          {mobileSectionTab === 'brokers' ? (
+            isMarketIndex ? (
+              <div className="mobile-broker-panel">
+                <div className="mbp-index-note">
+                  大盤加權指數無單一券商分點報表，點擊任一權值熱門股可查看其前 15 大分點明細：
+                </div>
+                <div className="mobile-broker-single-list">
+                  {[...allStocks]
+                    .sort((a, b) => (b.main1 || 0) - (a.main1 || 0))
+                    .slice(0, 15)
+                    .map((s, idx) => (
+                      <div
+                        key={s.code}
+                        className="mobile-broker-item-card"
+                        onClick={() => onSelectStock(s.code)}
+                      >
+                        <div className="mbic-top">
+                          <span className="mbic-rank">#{idx + 1}</span>
+                          <strong className="mbic-name">
+                            {s.code} {s.name}
+                          </strong>
+                          <strong className="mbic-net val-up">主1 +{s.main1}%</strong>
+                        </div>
+                        <div className="mbic-sub">
+                          <span>現價 {s.price} ({s.changePct}%)</span>
+                          <span>量 {s.volume?.toLocaleString()} 張</span>
+                          <span>{s.momentum?.main?.stageLabel}</span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mobile-broker-panel" id="mobile-broker-top15-panel">
+                {/* 區間統計天數切換 ＋ 買賣力道摘要 */}
+                <div className="mbp-period-row">
+                  <span className="mbp-period-label">統計天數：</span>
+                  {[1, 5, 10, 20, 60].map(d => (
+                    <button
+                      key={d}
+                      type="button"
+                      className={`mbp-day-pill ${periodDays === d ? 'active' : ''}`}
+                      onClick={() => setPeriodDays(d)}
+                    >
+                      {d}日
+                    </button>
+                  ))}
+                  <span className="mbp-concentration">
+                    集中度{' '}
+                    <strong className={chipAnalysis.chipConcentrationPct >= 0 ? 'val-up' : 'val-down'}>
+                      {chipAnalysis.chipConcentrationPct}%
+                    </strong>
+                  </span>
+                </div>
+
+                {/* 多空拔河條 */}
+                {(() => {
+                  const bSum = Math.max(1, chipAnalysis.top15BuySum);
+                  const sSum = Math.max(1, Math.abs(chipAnalysis.top15SellSum));
+                  const buyPct = Math.round((bSum / (bSum + sSum)) * 100);
+                  return (
+                    <div className="detail-tug-strip mobile-tug-strip">
+                      <div className="tug-bar-track">
+                        <div className="tug-bar-buy" style={{ width: `${buyPct}%` }}>
+                          買方 +{chipAnalysis.top15BuySum.toLocaleString()}張 ({buyPct}%)
+                        </div>
+                        <div className="tug-bar-sell" style={{ width: `${100 - buyPct}%` }}>
+                          賣方 {chipAnalysis.top15SellSum.toLocaleString()}張
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 買賣超前 15 名單欄大字頁籤切換：[🔴 買超前15名] vs [🟢 賣超前15名] */}
+                <div className="mobile-buy-sell-tabs" role="tablist" aria-label="買賣超前15名切換">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobileBrokerSide === 'buy'}
+                    className={`m-bs-tab buy-tab ${mobileBrokerSide === 'buy' ? 'active' : ''}`}
+                    onClick={() => setMobileBrokerSide('buy')}
+                    id="mobile-tab-top15-buy"
+                  >
+                    🔴 買超前15名 (+{chipAnalysis.top15BuySum.toLocaleString()}張)
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobileBrokerSide === 'sell'}
+                    className={`m-bs-tab sell-tab ${mobileBrokerSide === 'sell' ? 'active' : ''}`}
+                    onClick={() => setMobileBrokerSide('sell')}
+                    id="mobile-tab-top15-sell"
+                  >
+                    🟢 賣超前15名 ({chipAnalysis.top15SellSum.toLocaleString()}張)
+                  </button>
+                </div>
+
+                <div className="mbp-tap-guide">
+                  💡 點擊任一分點即刻聯動上方「60 日真實分點買賣超」副圖
+                </div>
+
+                {/* 單欄大字前 15 名分點列表 */}
+                {activeMobileBrokerList.length === 0 ? (
+                  <div className="mobile-empty-brokers">
+                    目前尚無該區間分點明細，系統正從官方券商分點網站同步中...
+                  </div>
+                ) : (
+                  <div className="mobile-broker-single-list" id="mobile-broker-single-list">
+                    {activeMobileBrokerList.slice(0, 15).map((b, idx) => {
+                      const isChecked = selectedBrokerIds.includes(b.id);
+                      return (
+                        <div
+                          key={b.id}
+                          className={`mobile-broker-item-card ${
+                            mobileBrokerSide === 'buy' ? 'tint-buy' : 'tint-sell'
+                          } ${isChecked ? 'is-locked' : ''}`}
+                          onClick={() => handleMobileBrokerTap(b.id)}
+                          id={`mobile-broker-row-${idx + 1}`}
+                        >
+                          <div className="mbic-top">
+                            <div className="mbic-name-group">
+                              <span className="mbic-rank">#{idx + 1}</span>
+                              <strong className="mbic-name">{b.name}</strong>
+                              {b.badgeLabel && (
+                                <span className={`tag-broker ${b.badgeClass}`}>
+                                  {b.badgeLabel}
+                                </span>
+                              )}
+                              {isChecked && <span className="mbic-locked-pill">🎯 聯動中</span>}
+                            </div>
+
+                            <strong
+                              className={`mbic-net ${b.net >= 0 ? 'val-up' : 'val-down'}`}
+                            >
+                              {b.net >= 0 ? `+${b.net.toLocaleString()}` : b.net.toLocaleString()} 張
+                            </strong>
+                          </div>
+
+                          <div className="mbic-sub">
+                            <span>買 {b.buy?.toLocaleString()} 張 (均 {b.avgBuy > 0 ? b.avgBuy : '--'})</span>
+                            <span>賣 {b.sell?.toLocaleString()} 張 (均 {b.avgSell > 0 ? b.avgSell : '--'})</span>
+                            <span className={b.profitWan >= 0 ? 'val-up' : 'val-down'}>
+                              損益 {b.profitWan >= 0 ? `+${b.profitWan}` : b.profitWan} 萬
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          ) : mobileSectionTab === 'health' ? (
+            <div className="mobile-health-fund-panel">
+              <div className="mobile-fund-grid">
+                <div className="mf-box"><span>本益比 PE</span><strong>{stock.pe ?? '--'}</strong></div>
+                <div className="mf-box"><span>股淨比 PB</span><strong>{stock.pb ?? '--'}</strong></div>
+                <div className="mf-box"><span>殖利率%</span><strong className="val-up">{stock.dividendYield ?? '--'}%</strong></div>
+                <div className="mf-box"><span>營收 YoY</span><strong className={stock.revYoY >= 0 ? 'val-up' : 'val-down'}>{stock.revYoY ?? '--'}%</strong></div>
+                <div className="mf-box"><span>營收 MoM</span><strong className={stock.revMoM >= 0 ? 'val-up' : 'val-down'}>{stock.revMoM ?? '--'}%</strong></div>
+                <div className="mf-box"><span>維持率%</span><strong>{stock.maintRatio ?? '--'}%</strong></div>
+              </div>
+              <div className="health-check-list" style={{ marginTop: '12px' }}>
+                {healthChecks.map(hc => (
+                  <div key={hc.title} className="health-item-card">
+                    <div className="health-top">
+                      <strong>{hc.title}</strong>
+                      <span className={hc.isGood ? 'val-up' : 'val-down'}>
+                        {hc.status} ({hc.score}分)
+                      </span>
+                    </div>
+                    <div className="health-bar-bg">
+                      <div
+                        className={`health-bar-fill ${hc.isGood ? 'red' : 'green'}`}
+                        style={{ width: `${hc.score}%` }}
+                      />
+                    </div>
+                    <div className="health-detail">{hc.detail}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mobile-notes-panel">
+              <div className="notes-form-grid">
+                <label className="calc-field">
+                  <span>理想低接買進價 (元)</span>
+                  <input
+                    type="number"
+                    value={currentNote.targetBuy}
+                    onChange={e => updateCurrentNote('targetBuy', e.target.value)}
+                  />
+                </label>
+                <label className="calc-field">
+                  <span>防守停損價 (元)</span>
+                  <input
+                    type="number"
+                    value={currentNote.stopLoss}
+                    onChange={e => updateCurrentNote('stopLoss', e.target.value)}
+                  />
+                </label>
+              </div>
+              <textarea
+                className="stock-memo-textarea"
+                rows={6}
+                value={currentNote.memo}
+                onChange={e => updateCurrentNote('memo', e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
       {/* 參考圖 2 頂部雙欄控制列 */}
       <div className="detail-top-header">
         <div className="detail-header-left">
@@ -1109,11 +1989,13 @@ export default function StockDetail({
                 <svg
                   viewBox={`0 0 ${mainChartWidth} ${mainChartHeight}`}
                   className="main-kline-svg"
-                  onMouseMove={e => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const relX = ((e.clientX - rect.left) / rect.width) * mainChartWidth - padLeft;
-                    const localIdx = Math.min(count - 1, Math.max(0, Math.floor(relX / stepX)));
-                    setHoverIdx(visibleStartGlobalIdx + localIdx);
+                  style={{ touchAction: 'pan-y' }}
+                  onMouseMove={e => handleMainKlinePointer(e.currentTarget, e.clientX)}
+                  onTouchStart={e => {
+                    if (e.touches[0]) handleMainKlinePointer(e.currentTarget, e.touches[0].clientX);
+                  }}
+                  onTouchMove={e => {
+                    if (e.touches[0]) handleMainKlinePointer(e.currentTarget, e.touches[0].clientX);
                   }}
                 >
                   {/* 庫藏股期間粉紅色底塊 */}
@@ -2664,6 +3546,8 @@ export default function StockDetail({
           )}
         </div>
       </div>
+        </>
+      )}
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { computePeriodChipAnalysis, computeStockMomentum } from '../data/mockStocks';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 // 繪製迷你 K 棒 SVG
 function MiniCandle({ type }) {
@@ -463,9 +464,62 @@ export default function StockScreener({
   onTogglePin,
   onSelectStock,
   onBatchAddStocks,
-  onOpenFormulaModal
+  onOpenFormulaModal,
+  externalMarketScope,
+  onChangeExternalScope,
+  batchModalTrigger = 0,
+  registerCsvExport
 }) {
-  const [marketScope, setMarketScope] = useState('ALL');
+  const isMobile = useIsMobile(768);
+  const [marketScope, setMarketScopeInternal] = useState(externalMarketScope || 'ALL');
+  const setMarketScope = valOrUpdater => {
+    setMarketScopeInternal(prev => {
+      const next = typeof valOrUpdater === 'function' ? valOrUpdater(prev) : valOrUpdater;
+      if (onChangeExternalScope) onChangeExternalScope(next);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (externalMarketScope && externalMarketScope !== marketScope) {
+      setMarketScopeInternal(externalMarketScope);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalMarketScope]);
+
+  useEffect(() => {
+    if (batchModalTrigger > 0) {
+      setIsBatchModalOpen(true);
+      setBatchMessage('');
+    }
+  }, [batchModalTrigger]);
+
+  // 手機版專屬狀態：預設「大字個股卡片」('card')，可隨時一鍵切回「精簡表格」('table')
+  const [mobileViewMode, setMobileViewMode] = useState(() => {
+    try {
+      return localStorage.getItem('mainbuy_mobile_screener_view') || 'card';
+    } catch {
+      return 'card';
+    }
+  });
+  const [expandedCardMap, setExpandedCardMap] = useState({});
+  const [isMobileFilterSheetOpen, setIsMobileFilterSheetOpen] = useState(false);
+  const [mobileSheetStrategyTab, setMobileSheetStrategyTab] = useState('chip');
+
+  const handleChangeMobileViewMode = mode => {
+    setMobileViewMode(mode);
+    try {
+      localStorage.setItem('mainbuy_mobile_screener_view', mode);
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleExpandCard = (code, e) => {
+    if (e) e.stopPropagation();
+    setExpandedCardMap(prev => ({ ...prev, [code]: !prev[code] }));
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
   // 方案 C 核心：動能目標 ('main' | 'trust' | 'foreign' | 'dual' | 'dualSell') 與動能階段
   const [momentumTarget, setMomentumTarget] = useState('main');
@@ -924,8 +978,872 @@ export default function StockScreener({
   const showFig3Cols = columnMode === 'fig3' || columnMode === 'all';
   const cachedCount = stocks.filter(s => s.isUserCached).length;
 
+  useEffect(() => {
+    if (registerCsvExport) {
+      registerCsvExport(handleExportCsv);
+      return () => registerCsvExport(null);
+    }
+    return undefined;
+  });
+
+  const formatSignedPct = val => {
+    if (val === undefined || val === null || Number.isNaN(Number(val))) return '--';
+    const n = Number(val);
+    return `${n > 0 ? '+' : ''}${n}%`;
+  };
+
+  const resolveSlopes = stock => {
+    let mSlope = stock.monthSlope;
+    let uSlope = stock.upperSlope;
+    let lSlope = stock.lowerSlope;
+    let bWidth = stock.bandWidth;
+    const kl = stock.kline;
+    if (Array.isArray(kl) && kl.length >= 2) {
+      const last = kl[kl.length - 1];
+      const prev = kl[kl.length - 2];
+      if ((mSlope === undefined || mSlope === null) && last?.ma20 && prev?.ma20) {
+        mSlope = Number((((last.ma20 / prev.ma20) - 1) * 100).toFixed(2));
+      }
+      if ((uSlope === undefined || uSlope === null) && last?.bollUpper && prev?.bollUpper) {
+        uSlope = Number((((last.bollUpper / prev.bollUpper) - 1) * 100).toFixed(2));
+      }
+      if ((lSlope === undefined || lSlope === null) && last?.bollLower && prev?.bollLower) {
+        lSlope = Number((((last.bollLower / prev.bollLower) - 1) * 100).toFixed(2));
+      }
+      if ((bWidth === undefined || bWidth === null) && last?.bollUpper && last?.bollLower) {
+        bWidth = Number((((last.bollUpper / Math.max(0.01, last.bollLower)) - 1) * 100).toFixed(1));
+      }
+    }
+    return { mSlope, uSlope, lSlope, bWidth };
+  };
+
+  const mobileQuickCapsules = [
+    {
+      id: 'all',
+      label: `全部 (${stocks.length})`,
+      active: momentumTarget === 'main' && momentumStage === 'ALL',
+      apply: () => {
+        setMomentumTarget('main');
+        setMomentumStage('ALL');
+      }
+    },
+    {
+      id: 'day1-buy',
+      label: `🔥 第1天轉買 (${stocks.filter(s => checkMomentumMatch(s, 'main', 'DAY1_BUY')).length})`,
+      active: momentumTarget === 'main' && momentumStage === 'DAY1_BUY',
+      apply: () => {
+        setMomentumTarget('main');
+        setMomentumStage('DAY1_BUY');
+      }
+    },
+    {
+      id: 'buy-5d',
+      label: `📈 5天偏買 (${stocks.filter(s => checkMomentumMatch(s, 'main', 'BUY_5D')).length})`,
+      active: momentumTarget === 'main' && momentumStage === 'BUY_5D',
+      apply: () => {
+        setMomentumTarget('main');
+        setMomentumStage('BUY_5D');
+      }
+    },
+    {
+      id: 'buy-10d',
+      label: `🚀 10天偏買 (${stocks.filter(s => checkMomentumMatch(s, 'main', 'BUY_10D')).length})`,
+      active: momentumTarget === 'main' && momentumStage === 'BUY_10D',
+      apply: () => {
+        setMomentumTarget('main');
+        setMomentumStage('BUY_10D');
+      }
+    },
+    {
+      id: 'dual-buy',
+      label: `🤝 主力+投信同買 (${dualBuyCount})`,
+      active: momentumTarget === 'dual',
+      apply: () => {
+        setMomentumTarget('dual');
+        setMomentumStage('ALL');
+      }
+    },
+    {
+      id: 'trust-buy',
+      label: `🏦 投信轉買/偏買 (${stocks.filter(s => checkMomentumMatch(s, 'trust', 'BUY_5D') || checkMomentumMatch(s, 'trust', 'DAY1_BUY')).length})`,
+      active: momentumTarget === 'trust' && (momentumStage === 'BUY_5D' || momentumStage === 'DAY1_BUY'),
+      apply: () => {
+        setMomentumTarget('trust');
+        setMomentumStage('BUY_5D');
+      }
+    },
+    {
+      id: 'day1-sell',
+      label: `⚠️ 第1天轉賣 (${stocks.filter(s => checkMomentumMatch(s, 'main', 'DAY1_SELL')).length})`,
+      active: momentumTarget === 'main' && momentumStage === 'DAY1_SELL',
+      isBear: true,
+      apply: () => {
+        setMomentumTarget('main');
+        setMomentumStage('DAY1_SELL');
+      }
+    },
+    {
+      id: 'dual-sell',
+      label: `📉 主力+投信同賣 (${dualSellCount})`,
+      active: momentumTarget === 'dualSell',
+      isBear: true,
+      apply: () => {
+        setMomentumTarget('dualSell');
+        setMomentumStage('ALL');
+      }
+    }
+  ];
+
+  const advancedFilterCount =
+    activeStrategyIds.length +
+    (hasCustomFilter ? 1 : 0) +
+    (marketScope !== 'ALL' && marketScope !== 'PINNED' ? 1 : 0);
+
   return (
     <section className="screener-container" id="screener-section">
+      {isMobile ? (
+        <div className="mobile-screener-root" id="mobile-screener-root">
+          {/* 手機大盤加權 / 期貨快覽條（點擊直通大盤 K 線） */}
+          <div
+            className="mobile-market-strip"
+            onClick={() => onSelectStock('TAIEX')}
+            id="mobile-taiex-strip"
+          >
+            <div className="mm-strip-left">
+              <span className="mm-strip-tag">加權 📈</span>
+              <strong className={liveIndexChg >= 0 ? 'cell-red' : 'cell-green'}>
+                {liveIndexVal.toLocaleString()}
+              </strong>
+              <span className={liveIndexChg >= 0 ? 'cell-red' : 'cell-green'}>
+                {liveIndexChg >= 0 ? `▲${Math.round(liveIndexChg)}` : `▼${Math.abs(Math.round(liveIndexChg))}`} ({liveIndexPct >= 0 ? `+${liveIndexPct}` : liveIndexPct}%)
+              </span>
+            </div>
+            <div className="mm-strip-right">
+              <span className="mm-strip-fut">台指 {liveFuturesVal.toLocaleString()}</span>
+              <span className="mm-strip-arrow">›</span>
+            </div>
+          </div>
+
+          {/* 手機搜尋框 + 卡片/精簡表格切換 + ⚡進階篩選按鈕 */}
+          <div className="mobile-screener-controls">
+            <div className="mobile-search-box">
+              <input
+                type="text"
+                className="mobile-filter-input"
+                placeholder={
+                  marketScope === 'PINNED'
+                    ? `在自選股 (${pinnedCodes.length}) 中搜尋...`
+                    : '篩選代號 / 股名 / 產業...'
+                }
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                id="mobile-input-screener-search"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="mobile-clear-q"
+                  onClick={() => setSearchQuery('')}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="mobile-view-toggle-btn"
+              onClick={() =>
+                handleChangeMobileViewMode(mobileViewMode === 'card' ? 'table' : 'card')
+              }
+              id="btn-mobile-toggle-view-mode"
+            >
+              {mobileViewMode === 'card' ? '📋 精簡表格' : '🗂️ 大字卡片'}
+            </button>
+
+            <button
+              type="button"
+              className={`mobile-adv-filter-btn ${advancedFilterCount > 0 ? 'has-active' : ''}`}
+              onClick={() => setIsMobileFilterSheetOpen(true)}
+              id="btn-mobile-open-filter-sheet"
+            >
+              ⚡ 進階篩選{advancedFilterCount > 0 ? ` (${advancedFilterCount})` : ''}
+            </button>
+          </div>
+
+          {/* 頂部單排可左右滑動的關鍵動能快篩膠囊 */}
+          <div className="mobile-capsule-scroll-row" id="mobile-momentum-capsules">
+            {mobileQuickCapsules.map(cap => (
+              <button
+                key={cap.id}
+                type="button"
+                className={`mobile-mom-capsule ${cap.active ? 'active' : ''} ${
+                  cap.isBear ? 'bear' : ''
+                }`}
+                onClick={cap.apply}
+                id={`mobile-cap-${cap.id}`}
+              >
+                {cap.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 篩選結果摘要與快速排序條 */}
+          <div className="mobile-result-meta-bar">
+            <span className="m-result-count">
+              {marketScope === 'PINNED' ? '⭐ 我的自選股' : '📊 符合條件'}{' '}
+              <strong>{filteredStocks.length.toLocaleString()}</strong> 檔
+              {totalFilterCount > 0 && (
+                <button
+                  type="button"
+                  className="btn-inline-reset"
+                  onClick={clearAllConditions}
+                >
+                  重設篩選
+                </button>
+              )}
+            </span>
+
+            <div className="m-quick-sort-wrap">
+              <select
+                className="m-sort-select"
+                value={sortConfig.key || ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSortConfig({ key: val || null, direction: 'desc' });
+                }}
+                aria-label="排序欄位"
+                id="mobile-select-sort"
+              >
+                <option value="">排序：預設熱門</option>
+                <option value="changePct">排序：漲跌幅%</option>
+                <option value="volume">排序：成交量</option>
+                <option value="main1">排序：主1%</option>
+                <option value="main5">排序：主5%</option>
+                <option value="bandWidth">排序：布林帶寬%</option>
+                <option value="monthSlope">排序：月線斜率%</option>
+                <option value="upperSlope">排序：上軌斜率%</option>
+              </select>
+              {sortConfig.key && (
+                <button
+                  type="button"
+                  className="m-sort-dir-btn"
+                  onClick={() =>
+                    setSortConfig(prev => ({
+                      ...prev,
+                      direction: prev.direction === 'desc' ? 'asc' : 'desc'
+                    }))
+                  }
+                >
+                  {sortConfig.direction === 'desc' ? '▼' : '▲'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 主體：預設「大字個股卡片」 或 切換「精簡表格」 */}
+          {paginatedStocks.length === 0 ? (
+            <div className="mobile-empty-state">
+              <p>目前篩選條件下無符合個股</p>
+              <button type="button" className="btn-reset-empty" onClick={clearAllConditions}>
+                清空所有篩選條件
+              </button>
+            </div>
+          ) : mobileViewMode === 'card' ? (
+            <div className="mobile-stock-cards-list" id="mobile-stock-cards-list">
+              {paginatedStocks.map(stock => {
+                const isPinned = pinnedCodes.includes(stock.code);
+                const isExpanded = Boolean(expandedCardMap[stock.code]);
+                const priceColor = getSignedColorClass(stock.changePct);
+                const mom = stock.momentum || computeStockMomentum(stock.kline || []);
+                const activeMomObj =
+                  momentumTarget === 'trust'
+                    ? mom.trust
+                    : momentumTarget === 'foreign'
+                      ? mom.foreign
+                      : mom.main;
+
+                const stageBadgeClass = activeMomObj?.isDay1Buy
+                  ? 'stage-day1-buy'
+                  : activeMomObj?.is5DBuy || activeMomObj?.is10DBuy || activeMomObj?.is20DBuy
+                    ? 'stage-bull'
+                    : activeMomObj?.isDay1Sell
+                      ? 'stage-day1-sell'
+                      : 'stage-bear';
+
+                return (
+                  <article
+                    key={stock.code}
+                    className={`mobile-stock-card ${isPinned ? 'is-pinned-card' : ''}`}
+                    onClick={() => onSelectStock(stock.code)}
+                    id={`mobile-card-${stock.code}`}
+                  >
+                    {/* 第一列：1. 股名、代號、自選星號 ＋ 2. 現價與漲跌幅% */}
+                    <div className="msc-top-row">
+                      <div className="msc-identity">
+                        <button
+                          type="button"
+                          className={`msc-star-btn ${isPinned ? 'active' : ''}`}
+                          onClick={e => {
+                            e.stopPropagation();
+                            onTogglePin(stock.code);
+                          }}
+                          aria-label={`自選 ${stock.name}`}
+                        >
+                          {isPinned ? '★' : '☆'}
+                        </button>
+                        <div>
+                          <div className="msc-name-line">
+                            <strong className="msc-name">{stock.name}</strong>
+                            <span className="msc-code">{stock.code}</span>
+                          </div>
+                          <div className="msc-sub-meta">
+                            <span className="msc-industry">{stock.industry}</span>
+                            {/* 3. 成交量（張） */}
+                            <span className="msc-vol-tag">
+                              成交量 <strong>{stock.volume?.toLocaleString() ?? 0}</strong> 張
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="msc-price-block">
+                        <div className={`msc-price ${priceColor}`}>{stock.price}</div>
+                        <div className={`msc-chg-badge ${priceColor}`}>
+                          {stock.change >= 0 ? `▲ +${stock.change}` : `▼ ${stock.change}`} (
+                          {stock.changePct >= 0 ? `+${stock.changePct}` : stock.changePct}%)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 第二列：4. 動能轉折狀態標籤 ＋ 近10日紅綠熱力格 */}
+                    <div className="msc-momentum-row">
+                      <span className={`mom-stage-badge msc-stage-pill ${stageBadgeClass}`}>
+                        {activeMomObj?.stageLabel || '盤整'}
+                      </span>
+                      <div className="msc-spark-wrap">
+                        <span className="msc-spark-caption">近10日軌跡</span>
+                        <Recent10Sparkbar values={activeMomObj?.recent10 || []} />
+                      </div>
+                    </div>
+
+                    {/* 第三列：5. 主力買賣超% (主1% / 主5%) ＋ 6. 布林帶寬% 與 斜率% (月線/上軌/下軌) */}
+                    <div className="msc-core-metrics-grid">
+                      <div className="msc-metric-box">
+                        <span className="msc-m-label">主1% / 主5%</span>
+                        <strong className="msc-m-val">
+                          <span className={getSignedColorClass(stock.main1)}>
+                            {formatSignedPct(stock.main1)}
+                          </span>
+                          <span className="msc-sep"> / </span>
+                          <span className={getSignedColorClass(stock.main5)}>
+                            {formatSignedPct(stock.main5)}
+                          </span>
+                        </strong>
+                      </div>
+
+                      <div className="msc-metric-box">
+                        <span className="msc-m-label">布林帶寬%</span>
+                        {(() => {
+                          const { bWidth } = resolveSlopes(stock);
+                          return (
+                            <strong
+                              className={`msc-m-val ${
+                                bWidth >= 25
+                                  ? 'cell-red'
+                                  : bWidth <= 12
+                                    ? 'cell-green'
+                                    : 'cell-neutral'
+                              }`}
+                            >
+                              {bWidth !== undefined && bWidth !== null ? `${bWidth}%` : '--'}
+                            </strong>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="msc-metric-box msc-slope-box">
+                        <span className="msc-m-label">斜率% (月線 / 上軌 / 下軌)</span>
+                        {(() => {
+                          const { mSlope, uSlope, lSlope } = resolveSlopes(stock);
+                          return (
+                            <strong className="msc-m-val msc-slopes-inline">
+                              <span className={getSignedColorClass(mSlope)}>
+                                月{formatSignedPct(mSlope)}
+                              </span>
+                              <span className="msc-sep">·</span>
+                              <span className={getSignedColorClass(uSlope)}>
+                                上{formatSignedPct(uSlope)}
+                              </span>
+                              <span className="msc-sep">·</span>
+                              <span className={getSignedColorClass(lSlope)}>
+                                下{formatSignedPct(lSlope)}
+                              </span>
+                            </strong>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* 次要基本面欄位（預設收合，點擊「展開更多」才顯示） */}
+                    {isExpanded && (
+                      <div
+                        className="msc-expanded-fundamentals"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div className="msc-fund-item">
+                          <span>股淨比 (PB)</span>
+                          <strong className={stock.pb > 0 && stock.pb < 0.5 ? 'cell-red' : ''}>
+                            {stock.pb ?? '--'}
+                          </strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>殖利率%</span>
+                          <strong className="cell-red">{stock.dividendYield ?? '--'}%</strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>營收 YoY%</span>
+                          <strong className={getSignedColorClass(stock.revYoY)}>
+                            {stock.revYoY !== undefined ? `${stock.revYoY}%` : '--'}
+                          </strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>融資維持率</span>
+                          <strong className={stock.maintRatio && stock.maintRatio < 130 ? 'cell-green' : ''}>
+                            {stock.maintRatio ? `${stock.maintRatio}%` : '--'}
+                          </strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>本益比 (PE)</span>
+                          <strong>{stock.pe || '--'}</strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>外資% (連買)</span>
+                          <strong className={getSignedColorClass(stock.foreignPct)}>
+                            {formatSignedPct(stock.foreignPct)} ({stock.foreignConsec ?? 0}日)
+                          </strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>投信% (連買)</span>
+                          <strong className={getSignedColorClass(stock.trustPct)}>
+                            {formatSignedPct(stock.trustPct)} ({stock.trustConsec ?? 0}日)
+                          </strong>
+                        </div>
+                        <div className="msc-fund-item">
+                          <span>當沖% / 乖年%</span>
+                          <strong>
+                            {stock.dayTradePct ?? '--'}% / {stock.biasYear ?? '--'}%
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 卡片底部操作列：展開更多基本面 vs 點擊進入 K 線提示 */}
+                    <div className="msc-footer-bar">
+                      <button
+                        type="button"
+                        className="msc-expand-btn"
+                        onClick={e => toggleExpandCard(stock.code, e)}
+                      >
+                        {isExpanded ? '收合基本面 ▴' : '展開更多 (股淨比/殖利率/營收) ▾'}
+                      </button>
+                      <span className="msc-enter-kline-hint">點卡片看 K 線 ›</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            /* 手機精簡表格模式（大字橫向捲動） */
+            <div className="mobile-compact-table-wrap" id="mobile-compact-table-wrap">
+              <table className="mobile-compact-table">
+                <thead>
+                  <tr>
+                    <th className="mct-sticky">個股</th>
+                    <th onClick={() => handleSort('price')}>現價</th>
+                    <th onClick={() => handleSort('changePct')}>漲跌%</th>
+                    <th onClick={() => handleSort('volume')}>量(張)</th>
+                    <th>動能狀態</th>
+                    <th onClick={() => handleSort('main1')}>主1%</th>
+                    <th onClick={() => handleSort('main5')}>主5%</th>
+                    <th onClick={() => handleSort('bandWidth')}>帶寬%</th>
+                    <th onClick={() => handleSort('monthSlope')}>月線斜率</th>
+                    <th onClick={() => handleSort('upperSlope')}>上軌斜率</th>
+                    <th onClick={() => handleSort('lowerSlope')}>下軌斜率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedStocks.map(stock => {
+                    const isPinned = pinnedCodes.includes(stock.code);
+                    const priceColor = getSignedColorClass(stock.changePct);
+                    const mom = stock.momentum || computeStockMomentum(stock.kline || []);
+                    const activeMomObj =
+                      momentumTarget === 'trust'
+                        ? mom.trust
+                        : momentumTarget === 'foreign'
+                          ? mom.foreign
+                          : mom.main;
+                    return (
+                      <tr
+                        key={stock.code}
+                        onClick={() => onSelectStock(stock.code)}
+                        className={isPinned ? 'mct-pinned' : ''}
+                      >
+                        <td className="mct-sticky">
+                          <div className="mct-stock-cell">
+                            <button
+                              type="button"
+                              className={`mct-star ${isPinned ? 'active' : ''}`}
+                              onClick={e => {
+                                e.stopPropagation();
+                                onTogglePin(stock.code);
+                              }}
+                            >
+                              {isPinned ? '★' : '☆'}
+                            </button>
+                            <div>
+                              <div className="mct-name">{stock.name}</div>
+                              <div className="mct-code">{stock.code}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className={`mct-num ${priceColor}`}>{stock.price}</td>
+                        <td className={`mct-num ${priceColor}`}>
+                          {stock.changePct >= 0 ? `+${stock.changePct}%` : `${stock.changePct}%`}
+                        </td>
+                        <td className="mct-num">{stock.volume?.toLocaleString()}</td>
+                        <td>
+                          <span className="mct-mom-text">{activeMomObj?.stageLabel || '盤整'}</span>
+                        </td>
+                        <td className={`mct-num ${getSignedColorClass(stock.main1)}`}>
+                          {formatSignedPct(stock.main1)}
+                        </td>
+                        <td className={`mct-num ${getSignedColorClass(stock.main5)}`}>
+                          {formatSignedPct(stock.main5)}
+                        </td>
+                        <td className="mct-num">{stock.bandWidth ?? '-'}%</td>
+                        <td className={`mct-num ${getSignedColorClass(stock.monthSlope)}`}>
+                          {formatSignedPct(stock.monthSlope)}
+                        </td>
+                        <td className={`mct-num ${getSignedColorClass(stock.upperSlope)}`}>
+                          {formatSignedPct(stock.upperSlope)}
+                        </td>
+                        <td className={`mct-num ${getSignedColorClass(stock.lowerSlope)}`}>
+                          {formatSignedPct(stock.lowerSlope)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 手機分頁導覽列 */}
+          {filteredStocks.length > pageSize && (
+            <div className="mobile-pagination-bar">
+              <button
+                type="button"
+                className="m-page-btn"
+                disabled={safePage <= 1}
+                onClick={() => {
+                  setCurrentPage(p => Math.max(1, p - 1));
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              >
+                ◀ 上一頁
+              </button>
+              <span className="m-page-info">
+                第 <strong>{safePage}</strong> / {totalPages} 頁
+              </span>
+              <button
+                type="button"
+                className="m-page-btn"
+                disabled={safePage >= totalPages}
+                onClick={() => {
+                  setCurrentPage(p => Math.min(totalPages, p + 1));
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              >
+                下一頁 ▶
+              </button>
+            </div>
+          )}
+
+          {/* ⚡ 進階篩選底部彈出抽屜 (Bottom Sheet) */}
+          {isMobileFilterSheetOpen && (
+            <div
+              className="mobile-bottom-sheet-backdrop"
+              onClick={() => setIsMobileFilterSheetOpen(false)}
+              id="mobile-filter-sheet-backdrop"
+            >
+              <div
+                className="mobile-bottom-sheet filter-sheet-large"
+                onClick={e => e.stopPropagation()}
+                id="mobile-filter-sheet"
+              >
+                <div className="sheet-drag-handle" />
+                <div className="sheet-header-row">
+                  <h3 className="sheet-title">⚡ 進階選股與數值門檻篩選</h3>
+                  <button
+                    type="button"
+                    className="btn-sheet-close"
+                    onClick={() => setIsMobileFilterSheetOpen(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="sheet-body-scroll">
+                  {/* 1. 市場範圍 */}
+                  <div className="sheet-filter-group">
+                    <div className="sheet-group-title">市場範圍</div>
+                    <div className="sheet-pills-wrap">
+                      {[
+                        { id: 'ALL', label: `全部 (${stocks.length})` },
+                        { id: 'PINNED', label: `⭐ 自選股 (${pinnedCodes.length})` },
+                        { id: 'LISTED', label: '台股上市' },
+                        { id: 'OTC', label: '台股上櫃' },
+                        { id: 'CACHED', label: `⚡ 已快取 (${cachedCount})` }
+                      ].map(sc => (
+                        <button
+                          key={sc.id}
+                          type="button"
+                          className={`sheet-pill-btn ${marketScope === sc.id ? 'active' : ''}`}
+                          onClick={() => setMarketScope(sc.id)}
+                        >
+                          {sc.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 2. 鎖定對象與動能階段 */}
+                  <div className="sheet-filter-group">
+                    <div className="sheet-group-title">🎯 鎖定籌碼對象</div>
+                    <div className="sheet-pills-wrap">
+                      {[
+                        { id: 'main', label: '主力買賣' },
+                        { id: 'trust', label: '投信法人' },
+                        { id: 'foreign', label: '外資法人' },
+                        { id: 'dual', label: `🔥 主力+投信同買 (${dualBuyCount})` },
+                        { id: 'dualSell', label: `📉 主力+投信同賣 (${dualSellCount})` }
+                      ].map(t => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className={`sheet-pill-btn ${momentumTarget === t.id ? 'active' : ''}`}
+                          onClick={() => setMomentumTarget(t.id)}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="sheet-group-title" style={{ marginTop: '12px' }}>
+                      ⚡ 動能轉折階段
+                    </div>
+                    <div className="sheet-pills-wrap">
+                      {MOMENTUM_STAGES.map(st => (
+                        <button
+                          key={st.id}
+                          type="button"
+                          className={`sheet-pill-btn ${momentumStage === st.id ? 'active' : ''}`}
+                          onClick={() => setMomentumStage(st.id)}
+                        >
+                          {st.label} ({stageCounts[st.id] ?? 0})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 3. 四大進階策略條件與自訂策略庫 */}
+                  <div className="sheet-filter-group">
+                    <div className="sheet-group-title">📌 進階策略條件疊加</div>
+                    <div className="sheet-strategy-tabs">
+                      {[
+                        { id: 'chip', label: '主力籌碼' },
+                        { id: 'tech', label: '技術突破' },
+                        { id: 'intraday', label: '盤中大單' },
+                        { id: 'fundamental', label: '價值基本面' },
+                        { id: 'saved', label: `★策略庫(${savedStrategies.length})` }
+                      ].map(tb => (
+                        <button
+                          key={tb.id}
+                          type="button"
+                          className={`sheet-subtab-btn ${
+                            mobileSheetStrategyTab === tb.id ? 'active' : ''
+                          }`}
+                          onClick={() => setMobileSheetStrategyTab(tb.id)}
+                        >
+                          {tb.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {mobileSheetStrategyTab === 'saved' ? (
+                      <div className="sheet-saved-list">
+                        {savedStrategies.map(item => (
+                          <div
+                            key={item.id}
+                            className="sheet-saved-item"
+                            onClick={() => handleApplySavedStrategy(item)}
+                          >
+                            <span>{item.name}</span>
+                            <button
+                              type="button"
+                              className="btn-del-strategy"
+                              onClick={e => handleDeleteSavedStrategy(item.id, e)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <div className="sheet-save-row">
+                          <input
+                            type="text"
+                            placeholder="輸入新策略名稱儲存目前條件..."
+                            value={newStrategyName}
+                            onChange={e => setNewStrategyName(e.target.value)}
+                          />
+                          <button type="button" onClick={handleSaveCurrentStrategy}>
+                            💾 儲存
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="sheet-pills-col">
+                        {PRESET_STRATEGIES[mobileSheetStrategyTab]?.map(st => {
+                          const isSelected = activeStrategyIds.includes(st.id);
+                          return (
+                            <button
+                              key={st.id}
+                              type="button"
+                              className={`sheet-strategy-check-btn ${
+                                isSelected ? 'selected' : ''
+                              }`}
+                              onClick={() => toggleStrategy(st.id)}
+                            >
+                              <span>{isSelected ? '✓' : '+'}</span>
+                              <span>{st.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 4. 自訂數值門檻 */}
+                  <div className="sheet-filter-group">
+                    <div className="sheet-group-title">🔢 自訂數值門檻</div>
+                    <div className="sheet-Threshold-grid">
+                      <label className="sheet-input-field">
+                        <span>主 1 集中度 ≥ (%)</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          placeholder="例: 15"
+                          value={customFilters.minMain1}
+                          onChange={e =>
+                            setCustomFilters({ ...customFilters, minMain1: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="sheet-input-field">
+                        <span>主 5 集中度 ≥ (%)</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          placeholder="例: 10"
+                          value={customFilters.minMain5}
+                          onChange={e =>
+                            setCustomFilters({ ...customFilters, minMain5: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="sheet-input-field">
+                        <span>投信連買 ≥ (日)</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          placeholder="例: 2"
+                          value={customFilters.minTrustConsec}
+                          onChange={e =>
+                            setCustomFilters({
+                              ...customFilters,
+                              minTrustConsec: e.target.value
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="sheet-input-field">
+                        <span>股淨比 ≤ (倍)</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          inputMode="decimal"
+                          placeholder="例: 1.5"
+                          value={customFilters.maxPb}
+                          onChange={e =>
+                            setCustomFilters({ ...customFilters, maxPb: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="sheet-input-field">
+                        <span>營收 YOY ≥ (%)</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          placeholder="例: 20"
+                          value={customFilters.minRevYoY}
+                          onChange={e =>
+                            setCustomFilters({ ...customFilters, minRevYoY: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="sheet-input-field">
+                        <span>融資維持率 ≤ (%)</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          placeholder="例: 130"
+                          value={customFilters.maxMaintRatio}
+                          onChange={e =>
+                            setCustomFilters({
+                              ...customFilters,
+                              maxMaintRatio: e.target.value
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 抽屜底部固定套用按鈕 */}
+                <div className="sheet-sticky-footer">
+                  <button
+                    type="button"
+                    className="btn-sheet-reset"
+                    onClick={clearAllConditions}
+                  >
+                    清空條件
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-sheet-apply"
+                    onClick={() => setIsMobileFilterSheetOpen(false)}
+                    id="btn-mobile-apply-filters"
+                  >
+                    查看結果 ({filteredStocks.length.toLocaleString()} 檔)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
       {/* 頂部監控工具列 */}
       <div className="screener-toolbar">
         <div className="toolbar-left">
@@ -1801,6 +2719,8 @@ export default function StockScreener({
           />
         )}
       </div>
+        </>
+      )}
 
       {/* ➕ 批次加入股票 / 熱門族群一鍵快選彈窗 (Batch Add Modal) */}
       {isBatchModalOpen && (
