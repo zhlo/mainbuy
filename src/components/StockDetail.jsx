@@ -904,55 +904,60 @@ export default function StockDetail({
             </div>
           </div>
 
-          {/* 2. 上方固定查價看板（當日開高低收、成交量、布林軌道與買賣超） */}
+          {/* 2. 上方固定查價看板（固定高度與固定格位 CSS Grid，左右滑動查價 100% 零跳動） */}
           <div className="mobile-kline-readout-card" ref={mobileChartTopRef} id="mobile-kline-readout">
-            <div className="mkr-row mkr-ohlc-row">
-              <span className="mkr-date">{hoveredDay.date}</span>
-              <span>開 <strong>{hoveredDay.open}</strong></span>
-              <span>高 <strong className="val-up">{hoveredDay.high}</strong></span>
-              <span>低 <strong className="val-down">{hoveredDay.low}</strong></span>
-              <span>
+            <div className="mkr-grid-row mkr-row-top">
+              <span className="mkr-cell mkr-date">{hoveredDay.date}</span>
+              <span className={`mkr-cell ${hoveredDay.change >= 0 ? 'val-up' : 'val-down'}`}>
+                {hoveredDay.change >= 0 ? `▲+${hoveredDay.change}` : `▼${hoveredDay.change}`} (
+                {hoveredDay.changePct >= 0 ? `+${hoveredDay.changePct}` : hoveredDay.changePct}%)
+              </span>
+              <span className="mkr-cell mkr-align-right">
+                量 <strong>{hoveredDay.volume?.toLocaleString()}</strong> {unitLabel}
+              </span>
+            </div>
+
+            <div className="mkr-grid-row mkr-row-4col">
+              <span className="mkr-cell">開 <strong>{hoveredDay.open}</strong></span>
+              <span className="mkr-cell">高 <strong className="val-up">{hoveredDay.high}</strong></span>
+              <span className="mkr-cell">低 <strong className="val-down">{hoveredDay.low}</strong></span>
+              <span className="mkr-cell">
                 收{' '}
                 <strong className={hoveredDay.change >= 0 ? 'val-up' : 'val-down'}>
-                  {hoveredDay.close} ({hoveredDay.changePct >= 0 ? `+${hoveredDay.changePct}` : hoveredDay.changePct}%)
+                  {hoveredDay.close}
                 </strong>
               </span>
-              <span>
-                量 <strong>{hoveredDay.volume?.toLocaleString()} {unitLabel}</strong>
-              </span>
             </div>
 
-            <div className="mkr-row mkr-boll-row">
-              <span className="mkr-tag">布林軌道</span>
-              <span>上軌 <strong>{hoveredDay.bollUpper ?? '--'}</strong></span>
-              <span>月線 <strong>{hoveredDay.ma20 ?? '--'}</strong></span>
-              <span>下軌 <strong>{hoveredDay.bollLower ?? '--'}</strong></span>
-              <span className="mkr-bw">帶寬 <strong>{hoveredBandwidthPct}</strong></span>
+            <div className="mkr-grid-row mkr-row-4col">
+              <span className="mkr-cell">上軌 <strong>{hoveredDay.bollUpper ?? '--'}</strong></span>
+              <span className="mkr-cell">月線 <strong>{hoveredDay.ma20 ?? '--'}</strong></span>
+              <span className="mkr-cell">下軌 <strong>{hoveredDay.bollLower ?? '--'}</strong></span>
+              <span className="mkr-cell mkr-bw">帶寬 <strong>{hoveredBandwidthPct}</strong></span>
             </div>
 
-            <div className="mkr-row mkr-chips-row">
-              <span className="mkr-tag">當日買賣超</span>
-              <span className={(hoveredDay.mainNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+            <div className="mkr-grid-row mkr-row-3col">
+              <span className={`mkr-cell ${(hoveredDay.mainNet ?? 0) >= 0 ? 'val-up' : 'val-down'}`}>
                 主力 <strong>{fmtSignedNum(hoveredDay.mainNet)}</strong>
               </span>
-              <span className={(hoveredDay.foreignNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+              <span className={`mkr-cell ${(hoveredDay.foreignNet ?? 0) >= 0 ? 'val-up' : 'val-down'}`}>
                 外資 <strong>{fmtSignedNum(hoveredDay.foreignNet)}</strong>
               </span>
-              <span className={(hoveredDay.trustNet ?? 0) >= 0 ? 'val-up' : 'val-down'}>
+              <span className={`mkr-cell ${(hoveredDay.trustNet ?? 0) >= 0 ? 'val-up' : 'val-down'}`}>
                 投信 <strong>{fmtSignedNum(hoveredDay.trustNet)}</strong>
               </span>
             </div>
 
             {!isMarketIndex && selectedBrokerIds.length > 0 && (
               <div className="mkr-locked-broker-banner">
-                <span>
-                  🎯 聯動分點：<strong>{selectedBrokerNames}</strong>｜當日{' '}
+                <span className="mkr-broker-info">
+                  🎯 <strong className="mkr-broker-name">{selectedBrokerNames}</strong>｜當日{' '}
                   <strong
                     className={(hoveredBrokerPoint?.brokerNet ?? 0) >= 0 ? 'val-up' : 'val-down'}
                   >
-                    {fmtSignedNum(hoveredBrokerPoint?.brokerNet)} 張
-                  </strong>{' '}
-                  (累計 {hoveredBrokerPoint?.brokerCum?.toLocaleString() ?? 0} 張)
+                    {fmtSignedNum(hoveredBrokerPoint?.brokerNet)}
+                  </strong>
+                  ｜累 {hoveredBrokerPoint?.brokerCum?.toLocaleString() ?? 0}
                 </span>
                 <button
                   type="button"
@@ -1959,26 +1964,26 @@ export default function StockDetail({
                 )}
               </div>
 
-              {/* 查價線當日開高低收與漲跌幅橫條 */}
+              {/* 查價線當日開高低收與漲跌幅橫條（固定高度與等寬格位，滑鼠查價 0 跳動） */}
               <div className="kline-ohlc-readout">
                 <span className="ohlc-date">{hoveredDay.date}</span>
-                <span>開 <strong>{hoveredDay.open}</strong></span>
-                <span>高 <strong>{hoveredDay.high}</strong></span>
-                <span>低 <strong>{hoveredDay.low}</strong></span>
-                <span>收 <strong>{hoveredDay.close}</strong></span>
-                <span className={hoveredDay.change >= 0 ? 'val-up' : 'val-down'}>
+                <span className="ohlc-slot">開 <strong>{hoveredDay.open}</strong></span>
+                <span className="ohlc-slot">高 <strong>{hoveredDay.high}</strong></span>
+                <span className="ohlc-slot">低 <strong>{hoveredDay.low}</strong></span>
+                <span className="ohlc-slot">收 <strong>{hoveredDay.close}</strong></span>
+                <span className={`ohlc-chg-slot ${hoveredDay.change >= 0 ? 'val-up' : 'val-down'}`}>
                   漲跌 {hoveredDay.change >= 0 ? `+${hoveredDay.change}` : hoveredDay.change}
                 </span>
-                <span className={hoveredDay.changePct >= 0 ? 'val-up' : 'val-down'}>
-                  漲幅 {hoveredDay.changePct}%
+                <span className={`ohlc-chg-slot ${hoveredDay.changePct >= 0 ? 'val-up' : 'val-down'}`}>
+                  漲幅 {hoveredDay.changePct >= 0 ? `+${hoveredDay.changePct}` : hoveredDay.changePct}%
                 </span>
-                <span>
-                  {isMarketIndex ? '成交金額' : '量'}{' '}
+                <span className="ohlc-vol-slot">
+                  {isMarketIndex ? '金額' : '量'}{' '}
                   <strong>{hoveredDay.volume.toLocaleString()} {isMarketIndex ? '億' : '張'}</strong>
                 </span>
                 {hoveredDay.chipPending && (
                   <span className="pending-chip-badge" title="當日最新 K 線與成交量已即時顯示，未公布之盤後籌碼副圖自動留空">
-                    ⏳ 最新股價/量已載入・部分盤後籌碼待公布(留空)
+                    ⏳ 盤後籌碼待公布(留空)
                   </span>
                 )}
               </div>

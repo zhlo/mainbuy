@@ -655,7 +655,12 @@ export default function App() {
           ? 'theme-dark'
           : 'theme-light';
 
-  const shortSyncDate = syncState.latestDate ? syncState.latestDate.slice(5) : '';
+  const displayLatestDate =
+    syncState.latestDate ||
+    taiexData?.latestTradeDate ||
+    stocks[0]?.latestTradeDate ||
+    stocks[0]?.kline?.[stocks[0].kline.length - 1]?.date ||
+    '';
 
   return (
     <div
@@ -699,17 +704,17 @@ export default function App() {
                     setActiveView('screener');
                   }}
                 >
-                  <div className="brand-logo">M</div>
-                  <div className="mobile-brand-text">
+                  <div className="mobile-brand-row1">
+                    <div className="brand-logo mobile-logo-sm">M</div>
                     <span className="mobile-brand-title">MainBuy 主力雷達</span>
-                    <span className="mobile-brand-status">
-                      {syncState.status === 'syncing' || isPullRefreshing
-                        ? '🔄 同步官方資料中...'
-                        : shortSyncDate
-                          ? `🟢 官方連線・最新 ${shortSyncDate}`
-                          : '🟢 台股主力・分點動能'}
-                    </span>
                   </div>
+                  <span className="mobile-brand-status" id="mobile-latest-sync-badge">
+                    {syncState.status === 'syncing' || isPullRefreshing
+                      ? `🔄 更新中${displayLatestDate ? ` (${displayLatestDate})` : '...'}`
+                      : displayLatestDate
+                        ? `🟢 最新：${displayLatestDate}`
+                        : '🟢 正式連線'}
+                  </span>
                 </div>
 
                 <div className="mobile-appbar-actions">
