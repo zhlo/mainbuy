@@ -31,12 +31,44 @@ export const BROKER_PORTAL_HOSTS = [
   'https://stockchannelnew.wls.com.tw'
 ];
 
-// 瀏覽器端跨域抓取券商分點網頁之備援代理
+// 瀏覽器端跨域抓取券商分點網頁之備援代理（優先使用使用者於「資料源」設定的專屬 Cloudflare Worker 代理）
 const CORS_PROXIES = [
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
 ];
+
+export function getCustomBrokerProxyUrl() {
+  const envProxy =
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_BROKER_PROXY_URL
+      ? String(import.meta.env.VITE_BROKER_PROXY_URL).trim()
+      : '';
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return envProxy;
+  }
+  try {
+    const raw = window.localStorage.getItem('chipflow_datasource_config');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.brokerProxyUrl && String(parsed.brokerProxyUrl).trim()) {
+        return String(parsed.brokerProxyUrl).trim();
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return envProxy;
+}
+
+export function buildCustomProxyUrl(proxyBase, targetUrl) {
+  const base = String(proxyBase || '').trim().replace(/\/+$/, '');
+  if (!base) return targetUrl;
+  if (base.includes('?url=') || base.includes('&url=')) {
+    return `${base}${encodeURIComponent(targetUrl)}`;
+  }
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}url=${encodeURIComponent(targetUrl)}`;
+}
 
 export const TW_STOCK_DIRECTORY = {
   '2049': { name: '上銀', market: '上市', industry: '傳產-電機' },
@@ -85,6 +117,7 @@ export const TW_STOCK_DIRECTORY = {
   '2303': { name: '聯電', market: '上市', industry: '電子上游-IC-代工' },
   '3711': { name: '日月光投控', market: '上市', industry: '電子上游-IC-封測' },
   '2449': { name: '京元電子', market: '上市', industry: '電子上游-IC-封測' },
+  '2355': { name: '敬鵬', market: '上市', industry: '電子上游-PCB' },
   '2368': { name: '金像電', market: '上市', industry: '電子上游-PCB' },
   '2383': { name: '台光電', market: '上市', industry: '電子上游-CCL' },
   '6274': { name: '台燿', market: '上櫃', industry: '電子上游-CCL' },
@@ -558,7 +591,17 @@ export function parseMoneyDjSingleBrokerHistoryHtml(html, kline = []) {
 export async function fetchSingleBrokerHistoryFromPortal(zco0Path, kline = []) {
   if (!zco0Path) return null;
   const relPath = normalizeZco0Path(zco0Path);
-  for (const host of BROKER_PORTAL_HOSTS.slice(0, 3)) {
+  const customProxy = getCustomBrokerProxyUrl();
+  const proxyBuilders = customProxy
+    ? [url => buildCustomProxyUrl(customProxy, url)]
+    : CORS_PROXIES;
+  const hostsToTry =
+    typeof window === 'undefined' || customProxy
+      ? BROKER_PORTAL_HOSTS.slice(0, 3)
+      : BROKER_PORTAL_HOSTS.slice(0, 2);
+  const proxyTimeoutMs = customProxy ? 8000 : 3500;
+
+  for (const host of hostsToTry) {
     const targetUrl = `${host}${relPath}`;
     if (typeof window === 'undefined') {
       try {
@@ -590,10 +633,10 @@ export async function fetchSingleBrokerHistoryFromPortal(zco0Path, kline = []) {
       continue;
     }
 
-    for (const buildProxyUrl of CORS_PROXIES) {
+    for (const buildProxyUrl of proxyBuilders) {
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5500);
+        const timer = setTimeout(() => controller.abort(), proxyTimeoutMs);
         const res = await fetch(buildProxyUrl(targetUrl), { signal: controller.signal });
         clearTimeout(timer);
         if (!res.ok) continue;
@@ -617,7 +660,17 @@ export async function fetchSingleBrokerHistoryFromPortal(zco0Path, kline = []) {
 // 抓取富邦/元大/宏遠券商網站真實分點買賣超日報表 (1日/5日/10日/20日)
 export async function fetchBrokerReportFromPortal(code, days = 1, currentPrice = 100) {
   const rangeIdx = MONEYDJ_RANGE_MAP[days] || 1;
-  for (const host of BROKER_PORTAL_HOSTS) {
+  const customProxy = getCustomBrokerProxyUrl();
+  const proxyBuilders = customProxy
+    ? [url => buildCustomProxyUrl(customProxy, url)]
+    : CORS_PROXIES;
+  const hostsToTry =
+    typeof window === 'undefined' || customProxy
+      ? BROKER_PORTAL_HOSTS.slice(0, 3)
+      : BROKER_PORTAL_HOSTS.slice(0, 2);
+  const proxyTimeoutMs = customProxy ? 8000 : 3500;
+
+  for (const host of hostsToTry) {
     const targetUrl = `${host}/z/zc/zco/zco_${code}_${rangeIdx}.djhtm`;
     if (typeof window === 'undefined') {
       try {
@@ -649,10 +702,10 @@ export async function fetchBrokerReportFromPortal(code, days = 1, currentPrice =
       continue;
     }
 
-    for (const buildProxyUrl of CORS_PROXIES) {
+    for (const buildProxyUrl of proxyBuilders) {
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5500);
+        const timer = setTimeout(() => controller.abort(), proxyTimeoutMs);
         const res = await fetch(buildProxyUrl(targetUrl), { signal: controller.signal });
         clearTimeout(timer);
         if (!res.ok) continue;
@@ -1177,18 +1230,24 @@ function classifyCandleType(open, high, low, close) {
 // 直連 Yahoo Finance 抓取台股真實 1 年日 K 線 (開高低收量與真實均線，完全免 Token、零限速)
 export async function fetchYahooKlineSeries(code, market = '上市') {
   const symbol = market === '上櫃' ? `${code}.TWO` : `${code}.TW`;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1y&interval=1d`;
+  const rawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1y&interval=1d`;
+  const customProxy = typeof window !== 'undefined' ? getCustomBrokerProxyUrl() : '';
+  const url = customProxy ? buildCustomProxyUrl(customProxy, rawUrl) : rawUrl;
+  const fetchHeaders =
+    typeof window === 'undefined'
+      ? {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'application/json'
+        }
+      : { Accept: 'application/json' };
   let res;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     res = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'application/json'
-      }
+      headers: fetchHeaders
     });
     clearTimeout(timer);
   } catch {
@@ -1197,12 +1256,11 @@ export async function fetchYahooKlineSeries(code, market = '上市') {
 
   if (!res || !res.ok) {
     const altSymbol = market === '上櫃' ? `${code}.TW` : `${code}.TWO`;
+    const altRawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${altSymbol}?range=1y&interval=1d`;
+    const altUrl = customProxy ? buildCustomProxyUrl(customProxy, altRawUrl) : altRawUrl;
     try {
-      res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${altSymbol}?range=1y&interval=1d`, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-        }
+      res = await fetch(altUrl, {
+        headers: fetchHeaders
       });
     } catch {}
   }

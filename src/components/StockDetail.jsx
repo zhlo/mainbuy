@@ -1491,7 +1491,11 @@ export default function StockDetail({
                 {/* 單欄大字前 15 名分點列表 */}
                 {activeMobileBrokerList.length === 0 ? (
                   <div className="mobile-empty-brokers">
-                    目前尚無該區間分點明細，系統正從官方券商分點網站同步中...
+                    <div>目前尚無此股該區間的官方券商分點明細。</div>
+                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85, lineHeight: 1.55 }}>
+                      若該股尚未納入雲端深度追蹤名單，因官方券商分點網站在瀏覽器受跨網域（CORS）限制，
+                      請至右上角「☰ 更多 → ⚙️ 資料源」填入您的 <strong>Cloudflare Worker 專屬代理網址</strong>，即可即時查詢全台 1,900+ 檔真實分點資料。
+                    </div>
                   </div>
                 ) : (
                   <div className="mobile-broker-single-list" id="mobile-broker-single-list">
@@ -3242,7 +3246,25 @@ export default function StockDetail({
                       </tr>
                     </thead>
                     <tbody>
-                      {upperBrokerList.map(b => {
+                      {upperBrokerList.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            style={{
+                              textAlign: 'center',
+                              padding: '18px 14px',
+                              color: 'var(--text-muted)',
+                              lineHeight: 1.6,
+                              fontSize: '12.5px',
+                            }}
+                          >
+                            <div>目前查無此股該區間的官方券商分點明細（本系統堅持 100% 真實官方數據，不產生合成資料）。</div>
+                            <div style={{ marginTop: 4 }}>
+                              若該股不在雲端預抓名單中，請至頂部「⚙️ 資料源」填入您的 <strong>Cloudflare Worker 專屬代理網址</strong>，即可即時查詢全台 1,900+ 檔真實分點進出。
+                            </div>
+                          </td>
+                        </tr>
+                      ) : upperBrokerList.map(b => {
                         const isChecked = selectedBrokerIds.includes(b.id);
                         const matched = b.matchedLots ?? Math.min(b.buy, b.sell);
                         const realized = b.realizedWan ?? 0;
@@ -3364,7 +3386,22 @@ export default function StockDetail({
                       </tr>
                     </thead>
                     <tbody>
-                      {lowerBrokerList.map(b => {
+                      {lowerBrokerList.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            style={{
+                              textAlign: 'center',
+                              padding: '18px 14px',
+                              color: 'var(--text-muted)',
+                              lineHeight: 1.6,
+                              fontSize: '12.5px',
+                            }}
+                          >
+                            目前尚無賣超分點明細，請確認該股是否已設定 Cloudflare Worker 專屬代理或等待雲端同步。
+                          </td>
+                        </tr>
+                      ) : lowerBrokerList.map(b => {
                         const isChecked = selectedBrokerIds.includes(b.id);
                         const matched = b.matchedLots ?? Math.min(b.buy, b.sell);
                         const realized = b.realizedWan ?? 0;

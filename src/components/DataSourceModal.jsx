@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { buildCustomProxyUrl } from '../services/liveStockService';
 
 export default function DataSourceModal({
   isOpen,
@@ -10,15 +11,59 @@ export default function DataSourceModal({
 }) {
   const [mode, setMode] = useState(dataSourceConfig.mode || 'live');
   const [finmindToken, setFinmindToken] = useState(dataSourceConfig.finmindToken || '');
+  const [brokerProxyUrl, setBrokerProxyUrl] = useState(dataSourceConfig.brokerProxyUrl || '');
   const [refreshInterval, setRefreshInterval] = useState(dataSourceConfig.refreshInterval || 5);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [proxyTestStatus, setProxyTestStatus] = useState({ state: 'idle', msg: '' });
 
   if (!isOpen) return null;
+
+  const handleTestProxy = async () => {
+    const trimmed = brokerProxyUrl.trim();
+    if (!trimmed) {
+      setProxyTestStatus({ state: 'error', msg: '⚠️ 請先輸入 Cloudflare Worker 代理網址' });
+      return;
+    }
+    setProxyTestStatus({ state: 'testing', msg: '⏳ 正在測試專屬分點代理連線 (以 2355 測試)...' });
+    try {
+      const testTarget = 'https://fubon-ebrokerdj.fbs.com.tw/z/zc/zco/zco_2355_1.djhtm';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(buildCustomProxyUrl(trimmed, testTarget), {
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        setProxyTestStatus({ state: 'error', msg: `❌ 代理回應異常 (HTTP ${res.status})` });
+        return;
+      }
+      const buf = await res.arrayBuffer();
+      const big5 = new TextDecoder('big5').decode(buf);
+      const utf8 = new TextDecoder('utf-8').decode(buf);
+      if (big5.includes('買超券商') || utf8.includes('買超券商')) {
+        setProxyTestStatus({
+          state: 'ok',
+          msg: '✅ 代理連線成功！已成功解碼官方真實分點日報表（全台股 1,900+ 檔皆可即時查分點）'
+        });
+      } else {
+        setProxyTestStatus({
+          state: 'error',
+          msg: '⚠️ 連線有回應但未偵測到券商分點表格，請確認 Worker 程式碼是否正確部署'
+        });
+      }
+    } catch (err) {
+      setProxyTestStatus({
+        state: 'error',
+        msg: `❌ 無法連線至代理網址：${err?.message || '網路或 CORS 錯誤'}`
+      });
+    }
+  };
 
   const handleSave = () => {
     onSaveConfig({
       mode,
-      finmindToken,
+      finmindToken: finmindToken.trim(),
+      brokerProxyUrl: brokerProxyUrl.trim(),
       refreshInterval: Number(refreshInterval)
     });
     if (mode === 'live' && onTriggerSync) {
@@ -36,9 +81,9 @@ export default function DataSourceModal({
       <div className="modal-panel" onClick={e => e.stopPropagation()} id="datasource-modal-panel">
         <div className="modal-header">
           <div>
-            <h2 className="modal-title">⚙️ 台股正式資料來源與 API 串接設定</h2>
+            <h2 className="modal-title">⚙️ 台股正式資料來源與專屬分點代理設定</h2>
             <p className="modal-subtitle">
-              預設已開啟 FinMind 台股公開 API 直連，自動抓取最新交易日之正式 K 線、三大法人買賣超、融資融券與本益比/股淨比
+              雲端精選股每日自動同步真實分點；設定專屬 Cloudflare Worker 代理即可於瀏覽器任意查詢全台股 1,900+ 檔即時分點
             </p>
           </div>
           <button className="btn-icon-close" onClick={onClose}>
@@ -57,7 +102,7 @@ export default function DataSourceModal({
                 🟢 模式 A：自動抓取台股最新正式公開資料（預設啟用）
               </div>
               <p className="formula-desc">
-                直接從瀏覽器連線 FinMind 台股公開資料庫（免金鑰即可查詢 `TaiwanStockPrice` 日K線、`TaiwanStockInstitutionalInvestorsBuySell` 三大法人買賣超、`TaiwanStockMarginPurchaseShortSale` 融資融券、`TaiwanStockPER` 本益比/股淨比/殖利率），並支援在頂部輸入任意 4 碼台股代號即時抓取！
+                優先載入 GitHub Actions 雲端快照，並支援連線 FinMind 台股公開資料庫與券商分點網站，於頂部輸入任意 4 碼台股代號即時查詢與快取。
               </p>
             </div>
 
@@ -67,48 +112,87 @@ export default function DataSourceModal({
             >
               <div className="formula-card-title">
                 <input type="radio" checked={mode === 'simulated'} onChange={() => setMode('simulated')} />{' '}
-                📦 模式 B：固定參考截圖基準資料（離線對照模式）
+                📦 模式 B：固定參考基準資料（離線對照模式）
               </div>
               <p className="formula-desc">
-                鎖定參考截圖 1 與截圖 2（2049 上銀 403.5 元、玉山-城中、美林等分點）之精準基準數值，適合離線展示或與原始截圖逐欄對照。
+                離線對照模式，適合無網路環境檢視操作介面與欄位公式計算。
               </p>
             </div>
           </div>
 
-          {/* 散戶動向與欄位計算模型說明卡片 */}
+          {/* 專屬 Cloudflare Worker 分點代理設定 */}
           <div className="formula-calculator-box" style={{ marginBottom: '16px' }}>
             <div className="calc-header">
-              <span className="calc-badge">數據來源說明</span>
-              <strong>👥 散戶動向與主力選股指標之精準度與計算依據</strong>
+              <span className="calc-badge">推薦設定</span>
+              <strong>🌐 專屬券商分點代理網址（Cloudflare Worker Proxy URL）</strong>
             </div>
-            <div style={{ padding: '10px 14px', fontSize: '13px', lineHeight: '1.7', color: '#cbd5e1' }}>
-              <div>
-                <strong style={{ color: '#38bdf8' }}>1. 散戶動向數據來源：</strong>
-                台灣證券交易所 (TWSE) 官方每日公布三大法人與信用交易，並無官方散戶報表。本系統採市場通用量化模型：
-                <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px', color: '#f59e0b' }}>
-                  大盤散戶指標 = -(三大法人買賣超 × 0.55) + 融資餘額增減
-                </code>
-                ，個股散戶指標則以各股融資增減結合三大法人與主力大戶對作部位計算，真實反映散戶追高槓桿與接刀動向。
+            <div style={{ padding: '10px 14px', fontSize: '13px', lineHeight: '1.6', color: '#cbd5e1' }}>
+              <div style={{ marginBottom: '8px' }}>
+                公開免費 CORS 代理常因限流或 403 失效，導致非雲端預抓個股查無分點。請貼上您部署於 Cloudflare Workers 的專屬代理網址（專案內已附 <code>cloudflare-worker/broker-proxy.js</code>），設定後全市場任意 4 碼台股皆可秒查 1/5/10/20 日與 60 日真實分點：
               </div>
-              <div style={{ marginTop: '8px' }}>
-                <strong style={{ color: '#38bdf8' }}>2. 主1、主5、主10：</strong>
-                嚴格依照證券公會與券商分點報表計算：
-                <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px', color: '#34d399' }}>
-                  (區間Top15買超總量 - 區間Top15賣超總量) / 區間總成交量 × 100%
-                </code>
-                ，由官方每日分點成交明細精算。
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  type="url"
+                  placeholder="例：https://mainbuy-broker-proxy.your-account.workers.dev"
+                  value={brokerProxyUrl}
+                  onChange={e => {
+                    setBrokerProxyUrl(e.target.value);
+                    if (proxyTestStatus.state !== 'idle') setProxyTestStatus({ state: 'idle', msg: '' });
+                  }}
+                  style={{
+                    flex: '1 1 260px',
+                    height: '38px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #475569',
+                    background: '#0f172a',
+                    color: '#f8fafc',
+                    fontSize: '13px'
+                  }}
+                  id="input-broker-proxy-url"
+                />
+                <button
+                  type="button"
+                  className="btn-toolbar-action blue-text"
+                  onClick={handleTestProxy}
+                  disabled={proxyTestStatus.state === 'testing'}
+                  style={{ height: '38px', padding: '0 14px', borderRadius: '6px' }}
+                  id="btn-test-broker-proxy"
+                >
+                  {proxyTestStatus.state === 'testing' ? '測試中...' : '🧪 測試連線'}
+                </button>
               </div>
-              <div style={{ marginTop: '8px' }}>
-                <strong style={{ color: '#38bdf8' }}>3. 外資% 與 投信%：</strong>
-                選股主表統一採「當日淨買賣佔比 (淨買賣張數/總成交量×100%)」，個股內頁另行提供「累積持股比率%」，清楚區分短線進出與長線籌碼庫存。
-              </div>
+              {proxyTestStatus.msg && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    fontSize: '12.5px',
+                    background:
+                      proxyTestStatus.state === 'ok'
+                        ? 'rgba(34, 197, 94, 0.16)'
+                        : proxyTestStatus.state === 'error'
+                          ? 'rgba(239, 68, 68, 0.16)'
+                          : 'rgba(56, 189, 248, 0.14)',
+                    color:
+                      proxyTestStatus.state === 'ok'
+                        ? '#86efac'
+                        : proxyTestStatus.state === 'error'
+                          ? '#fca5a5'
+                          : '#7dd3fc'
+                  }}
+                >
+                  {proxyTestStatus.msg}
+                </div>
+              )}
             </div>
           </div>
 
           <div className="formula-calculator-box">
             <div className="calc-header">
               <span className="calc-badge">進階選填</span>
-              <strong>FinMind API Token（提高連線額度 / 解鎖進階分點日報表）</strong>
+              <strong>FinMind API Token（提高連線額度）</strong>
               {syncState?.latestDate && (
                 <span className="calc-hint">目前最新同步交易日：{syncState.latestDate}</span>
               )}
